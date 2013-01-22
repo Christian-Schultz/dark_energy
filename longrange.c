@@ -73,7 +73,7 @@ void long_range_force(void)
 
 #ifdef PERIODIC
 #ifdef DYNAMICAL_DE
-  if(All.Time>=All.DarkEnergyBegin)
+  if(All.Time>=All.DarkEnergyBegin && All.Time!=All.TimeBegin) /* Can't run dark energy pm part for the first timestep since the time constraints needs to be calculated first */
 	  pmforce_periodic_DE();
   else
 	  pmforce_periodic();

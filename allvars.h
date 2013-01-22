@@ -323,6 +323,7 @@ extern struct global_data_all_processes
   double DarkEnergyW;  /*!< Dark Energy equation of state */
   double DarkEnergySoundSpeed; /*!< Dark Energy sound speed relative to the lightspeed */
   double DarkEnergyBegin; /*!< Time to toggle dark energy clustering */
+  char DarkEnergyFileBase[MAXLEN_FILENAME];      /*!< basename to construct the names of the dark energy snapshot files */
 
   /* Code options */
 

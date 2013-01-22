@@ -378,43 +378,47 @@ void advance_and_find_timesteps(void)
 	dt_gravkick = (tend - tstart) * All.Timebase_interval;
 
 #ifdef DEBUG
-	int ti_step_dummy=calc_PM_step();
-	assert(ti_step_dummy==ti_step);
+      int ti_step_dummy=calc_PM_step();
+      if(ti_step_dummy!=ti_step){
+	      master_printf("Error in ti_step\n");
+	      endrun(1);
+      }
+      assert(ti_step_dummy==ti_step);
 #endif
 
       All.PM_Ti_begstep = All.PM_Ti_endstep;
       All.PM_Ti_endstep = All.PM_Ti_begstep + ti_step;
 
       if(All.ComovingIntegrationOn)
-	dt_gravkickB = -get_gravkick_factor(All.PM_Ti_begstep, (All.PM_Ti_begstep + All.PM_Ti_endstep) / 2);
+	      dt_gravkickB = -get_gravkick_factor(All.PM_Ti_begstep, (All.PM_Ti_begstep + All.PM_Ti_endstep) / 2);
       else
-	dt_gravkickB =
-	  -((All.PM_Ti_begstep + All.PM_Ti_endstep) / 2 - All.PM_Ti_begstep) * All.Timebase_interval;
+	      dt_gravkickB =
+		      -((All.PM_Ti_begstep + All.PM_Ti_endstep) / 2 - All.PM_Ti_begstep) * All.Timebase_interval;
 
       for(i = 0; i < NumPart; i++)
-	{
-	  for(j = 0; j < 3; j++)	/* do the kick */
-	    P[i].Vel[j] += P[i].GravPM[j] * dt_gravkick;
+      {
+	      for(j = 0; j < 3; j++)	/* do the kick */
+		      P[i].Vel[j] += P[i].GravPM[j] * dt_gravkick;
 
-	  if(P[i].Type == 0)
-	    {
-	      if(All.ComovingIntegrationOn)
-		{
-		  dt_gravkickA = get_gravkick_factor(P[i].Ti_begstep, All.Ti_Current) -
-		    get_gravkick_factor(P[i].Ti_begstep, (P[i].Ti_begstep + P[i].Ti_endstep) / 2);
-		  dt_hydrokick = get_hydrokick_factor(P[i].Ti_begstep, All.Ti_Current) -
-		    get_hydrokick_factor(P[i].Ti_begstep, (P[i].Ti_begstep + P[i].Ti_endstep) / 2);
-		}
-	      else
-		dt_gravkickA = dt_hydrokick =
-		  (All.Ti_Current - (P[i].Ti_begstep + P[i].Ti_endstep) / 2) * All.Timebase_interval;
+	      if(P[i].Type == 0)
+	      {
+		      if(All.ComovingIntegrationOn)
+		      {
+			      dt_gravkickA = get_gravkick_factor(P[i].Ti_begstep, All.Ti_Current) -
+				      get_gravkick_factor(P[i].Ti_begstep, (P[i].Ti_begstep + P[i].Ti_endstep) / 2);
+			      dt_hydrokick = get_hydrokick_factor(P[i].Ti_begstep, All.Ti_Current) -
+				      get_hydrokick_factor(P[i].Ti_begstep, (P[i].Ti_begstep + P[i].Ti_endstep) / 2);
+		      }
+		      else
+			      dt_gravkickA = dt_hydrokick =
+				      (All.Ti_Current - (P[i].Ti_begstep + P[i].Ti_endstep) / 2) * All.Timebase_interval;
 
-	      for(j = 0; j < 3; j++)
-		SphP[i].VelPred[j] = P[i].Vel[j]
-		  + P[i].GravAccel[j] * dt_gravkickA
-		  + SphP[i].HydroAccel[j] * dt_hydrokick + P[i].GravPM[j] * dt_gravkickB;
-	    }
-	}
+		      for(j = 0; j < 3; j++)
+			      SphP[i].VelPred[j] = P[i].Vel[j]
+				      + P[i].GravAccel[j] * dt_gravkickA
+				      + SphP[i].HydroAccel[j] * dt_hydrokick + P[i].GravPM[j] * dt_gravkickB;
+	      }
+      }
     }
 #endif
 
@@ -435,137 +439,137 @@ void advance_and_find_timesteps(void)
  *  timestep, assuming timestep criterion 0.
  */
 int get_timestep(int p,		/*!< particle index */
-		 double *aphys,	/*!< acceleration (physical units) */
-		 int flag	/*!< either 0 for normal operation, or finite timestep to get corresponding
-				   aphys */ )
+		double *aphys,	/*!< acceleration (physical units) */
+		int flag	/*!< either 0 for normal operation, or finite timestep to get corresponding
+				  aphys */ )
 {
-  double ax, ay, az, ac, csnd;
-  double dt = 0, dt_courant = 0, dt_accel;
-  int ti_step;
+	double ax, ay, az, ac, csnd;
+	double dt = 0, dt_courant = 0, dt_accel;
+	int ti_step;
 
 #ifdef CONDUCTION
-  double dt_cond;
+	double dt_cond;
 #endif
 
-  if(flag == 0)
-    {
-      ax = fac1 * P[p].GravAccel[0];
-      ay = fac1 * P[p].GravAccel[1];
-      az = fac1 * P[p].GravAccel[2];
+	if(flag == 0)
+	{
+		ax = fac1 * P[p].GravAccel[0];
+		ay = fac1 * P[p].GravAccel[1];
+		az = fac1 * P[p].GravAccel[2];
 
 #ifdef PMGRID
-      ax += fac1 * P[p].GravPM[0];
-      ay += fac1 * P[p].GravPM[1];
-      az += fac1 * P[p].GravPM[2];
+		ax += fac1 * P[p].GravPM[0];
+		ay += fac1 * P[p].GravPM[1];
+		az += fac1 * P[p].GravPM[2];
 #endif
 
-      if(P[p].Type == 0)
-	{
-	  ax += fac2 * SphP[p].HydroAccel[0];
-	  ay += fac2 * SphP[p].HydroAccel[1];
-	  az += fac2 * SphP[p].HydroAccel[2];
+		if(P[p].Type == 0)
+		{
+			ax += fac2 * SphP[p].HydroAccel[0];
+			ay += fac2 * SphP[p].HydroAccel[1];
+			az += fac2 * SphP[p].HydroAccel[2];
+		}
+
+		ac = sqrt(ax * ax + ay * ay + az * az);	/* this is now the physical acceleration */
+		*aphys = ac;
 	}
+	else
+		ac = *aphys;
 
-      ac = sqrt(ax * ax + ay * ay + az * az);	/* this is now the physical acceleration */
-      *aphys = ac;
-    }
-  else
-    ac = *aphys;
+	if(ac == 0)
+		ac = 1.0e-30;
 
-  if(ac == 0)
-    ac = 1.0e-30;
-
-  switch (All.TypeOfTimestepCriterion)
-    {
-    case 0:
-      if(flag > 0)
+	switch (All.TypeOfTimestepCriterion)
 	{
-	  dt = flag * All.Timebase_interval;
-	  dt /= hubble_a;	/* convert dloga to physical timestep  */
-	  ac = 2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / (dt * dt);
-	  *aphys = ac;
-	  return flag;
-	}
-      dt = dt_accel = sqrt(2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / ac);
+		case 0:
+			if(flag > 0)
+			{
+				dt = flag * All.Timebase_interval;
+				dt /= hubble_a;	/* convert dloga to physical timestep  */
+				ac = 2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / (dt * dt);
+				*aphys = ac;
+				return flag;
+			}
+			dt = dt_accel = sqrt(2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / ac);
 #ifdef ADAPTIVE_GRAVSOFT_FORGAS
-      if(P[p].Type == 0)
-	dt = dt_accel = sqrt(2 * All.ErrTolIntAccuracy * atime * SphP[p].Hsml / 2.8 / ac);
+			if(P[p].Type == 0)
+				dt = dt_accel = sqrt(2 * All.ErrTolIntAccuracy * atime * SphP[p].Hsml / 2.8 / ac);
 #endif
-      break;
-    default:
-      endrun(888);
-      break;
-    }
+			break;
+		default:
+			endrun(888);
+			break;
+	}
 
-  if(P[p].Type == 0)
-    {
-      csnd = sqrt(GAMMA * SphP[p].Pressure / SphP[p].Density);
+	if(P[p].Type == 0)
+	{
+		csnd = sqrt(GAMMA * SphP[p].Pressure / SphP[p].Density);
 
-      if(All.ComovingIntegrationOn)
-	dt_courant = 2 * All.CourantFac * All.Time * SphP[p].Hsml / (fac3 * SphP[p].MaxSignalVel);
-      else
-	dt_courant = 2 * All.CourantFac * SphP[p].Hsml / SphP[p].MaxSignalVel;
+		if(All.ComovingIntegrationOn)
+			dt_courant = 2 * All.CourantFac * All.Time * SphP[p].Hsml / (fac3 * SphP[p].MaxSignalVel);
+		else
+			dt_courant = 2 * All.CourantFac * SphP[p].Hsml / SphP[p].MaxSignalVel;
 
-      if(dt_courant < dt)
-	dt = dt_courant;
-    }
+		if(dt_courant < dt)
+			dt = dt_courant;
+	}
 
-  /* convert the physical timestep to dloga if needed. Note: If comoving integration has not been selected,
-     hubble_a=1.
-   */
-  dt *= hubble_a;
+	/* convert the physical timestep to dloga if needed. Note: If comoving integration has not been selected,
+	   hubble_a=1.
+	 */
+	dt *= hubble_a;
 
-  if(dt >= All.MaxSizeTimestep)
-    dt = All.MaxSizeTimestep;
+	if(dt >= All.MaxSizeTimestep)
+		dt = All.MaxSizeTimestep;
 
-  if(dt >= dt_displacement)
-    dt = dt_displacement;
+	if(dt >= dt_displacement)
+		dt = dt_displacement;
 
-  if(dt < All.MinSizeTimestep)
-    {
+	if(dt < All.MinSizeTimestep)
+	{
 #ifndef NOSTOP_WHEN_BELOW_MINTIMESTEP
-      printf("warning: Timestep wants to be below the limit `MinSizeTimestep'\n");
+		printf("warning: Timestep wants to be below the limit `MinSizeTimestep'\n");
 
-      if(P[p].Type == 0)
-	{
-	  printf
-	    ("Part-ID=%d  dt=%g dtc=%g ac=%g xyz=(%g|%g|%g)  hsml=%g  maxsignalvel=%g dt0=%g eps=%g\n",
-	     (int) P[p].ID, dt, dt_courant * hubble_a, ac, P[p].Pos[0], P[p].Pos[1], P[p].Pos[2],
-	     SphP[p].Hsml, SphP[p].MaxSignalVel,
-	     sqrt(2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / ac) * hubble_a,
-	     All.SofteningTable[P[p].Type]);
-	}
-      else
-	{
-	  printf("Part-ID=%d  dt=%g ac=%g xyz=(%g|%g|%g)\n", (int) P[p].ID, dt, ac, P[p].Pos[0], P[p].Pos[1],
-		 P[p].Pos[2]);
-	}
-      fflush(stdout);
-      endrun(888);
+		if(P[p].Type == 0)
+		{
+			printf
+				("Part-ID=%d  dt=%g dtc=%g ac=%g xyz=(%g|%g|%g)  hsml=%g  maxsignalvel=%g dt0=%g eps=%g\n",
+				 (int) P[p].ID, dt, dt_courant * hubble_a, ac, P[p].Pos[0], P[p].Pos[1], P[p].Pos[2],
+				 SphP[p].Hsml, SphP[p].MaxSignalVel,
+				 sqrt(2 * All.ErrTolIntAccuracy * atime * All.SofteningTable[P[p].Type] / ac) * hubble_a,
+				 All.SofteningTable[P[p].Type]);
+		}
+		else
+		{
+			printf("Part-ID=%d  dt=%g ac=%g xyz=(%g|%g|%g)\n", (int) P[p].ID, dt, ac, P[p].Pos[0], P[p].Pos[1],
+					P[p].Pos[2]);
+		}
+		fflush(stdout);
+		endrun(888);
 #endif
-      dt = All.MinSizeTimestep;
-    }
+		dt = All.MinSizeTimestep;
+	}
 
-  ti_step = dt / All.Timebase_interval;
+	ti_step = dt / All.Timebase_interval;
 
-  if(!(ti_step > 0 && ti_step < TIMEBASE))
-    {
-      printf("\nError: A timestep of size zero was assigned on the integer timeline!\n"
-	     "We better stop.\n"
-	     "Task=%d Part-ID=%d dt=%g tibase=%g ti_step=%d ac=%g xyz=(%g|%g|%g) tree=(%g|%g%g)\n\n",
-	     ThisTask, (int) P[p].ID, dt, All.Timebase_interval, ti_step, ac,
-	     P[p].Pos[0], P[p].Pos[1], P[p].Pos[2], P[p].GravAccel[0], P[p].GravAccel[1], P[p].GravAccel[2]);
+	if(!(ti_step > 0 && ti_step < TIMEBASE))
+	{
+		printf("\nError: A timestep of size zero was assigned on the integer timeline!\n"
+				"We better stop.\n"
+				"Task=%d Part-ID=%d dt=%g tibase=%g ti_step=%d ac=%g xyz=(%g|%g|%g) tree=(%g|%g%g)\n\n",
+				ThisTask, (int) P[p].ID, dt, All.Timebase_interval, ti_step, ac,
+				P[p].Pos[0], P[p].Pos[1], P[p].Pos[2], P[p].GravAccel[0], P[p].GravAccel[1], P[p].GravAccel[2]);
 #ifdef PMGRID
-      printf("pm_force=(%g|%g|%g)\n", P[p].GravPM[0], P[p].GravPM[1], P[p].GravPM[2]);
+		printf("pm_force=(%g|%g|%g)\n", P[p].GravPM[0], P[p].GravPM[1], P[p].GravPM[2]);
 #endif
-      if(P[p].Type == 0)
-	printf("hydro-frc=(%g|%g|%g)\n", SphP[p].HydroAccel[0], SphP[p].HydroAccel[1], SphP[p].HydroAccel[2]);
+		if(P[p].Type == 0)
+			printf("hydro-frc=(%g|%g|%g)\n", SphP[p].HydroAccel[0], SphP[p].HydroAccel[1], SphP[p].HydroAccel[2]);
 
-      fflush(stdout);
-      endrun(818);
-    }
+		fflush(stdout);
+		endrun(818);
+	}
 
-  return ti_step;
+	return ti_step;
 }
 
 
@@ -579,82 +583,82 @@ int get_timestep(int p,		/*!< particle index */
  */
 void find_dt_displacement_constraint(double hfac /*!<  should be  a^2*H(a)  */ )
 {
-  int i, j, type, *temp;
-  int count[6];
-  long long count_sum[6];
-  double v[6], v_sum[6], mim[6], min_mass[6];
-  double dt, dmean, asmth = 0;
+	int i, j, type, *temp;
+	int count[6];
+	long long count_sum[6];
+	double v[6], v_sum[6], mim[6], min_mass[6];
+	double dt, dmean, asmth = 0;
 
-  dt_displacement = All.MaxSizeTimestep;
+	dt_displacement = All.MaxSizeTimestep;
 
-  if(All.ComovingIntegrationOn)
-    {
-      for(type = 0; type < 6; type++)
+	if(All.ComovingIntegrationOn)
 	{
-	  count[type] = 0;
-	  v[type] = 0;
-	  mim[type] = 1.0e30;
-	}
+		for(type = 0; type < 6; type++)
+		{
+			count[type] = 0;
+			v[type] = 0;
+			mim[type] = 1.0e30;
+		}
 
-      for(i = 0; i < NumPart; i++)
-	{
-	  v[P[i].Type] += P[i].Vel[0] * P[i].Vel[0] + P[i].Vel[1] * P[i].Vel[1] + P[i].Vel[2] * P[i].Vel[2];
-	  if(mim[P[i].Type] > P[i].Mass)
-	    mim[P[i].Type] = P[i].Mass;
-	  count[P[i].Type]++;
-	}
+		for(i = 0; i < NumPart; i++)
+		{
+			v[P[i].Type] += P[i].Vel[0] * P[i].Vel[0] + P[i].Vel[1] * P[i].Vel[1] + P[i].Vel[2] * P[i].Vel[2];
+			if(mim[P[i].Type] > P[i].Mass)
+				mim[P[i].Type] = P[i].Mass;
+			count[P[i].Type]++;
+		}
 
-      MPI_Allreduce(v, v_sum, 6, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-      MPI_Allreduce(mim, min_mass, 6, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
+		MPI_Allreduce(v, v_sum, 6, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+		MPI_Allreduce(mim, min_mass, 6, MPI_DOUBLE, MPI_MIN, MPI_COMM_WORLD);
 
-      temp = malloc(NTask * 6 * sizeof(int));
-      MPI_Allgather(count, 6, MPI_INT, temp, 6, MPI_INT, MPI_COMM_WORLD);
-      for(i = 0; i < 6; i++)
-	{
-	  count_sum[i] = 0;
-	  for(j = 0; j < NTask; j++)
-	    count_sum[i] += temp[j * 6 + i];
-	}
-      free(temp);
+		temp = malloc(NTask * 6 * sizeof(int));
+		MPI_Allgather(count, 6, MPI_INT, temp, 6, MPI_INT, MPI_COMM_WORLD);
+		for(i = 0; i < 6; i++)
+		{
+			count_sum[i] = 0;
+			for(j = 0; j < NTask; j++)
+				count_sum[i] += temp[j * 6 + i];
+		}
+		free(temp);
 
-      for(type = 0; type < 6; type++)
-	{
-	  if(count_sum[type] > 0)
-	    {
-	      if(type == 0)
-		dmean =
-		  pow(min_mass[type] / (All.OmegaBaryon * 3 * All.Hubble * All.Hubble / (8 * M_PI * All.G)),
-		      1.0 / 3);
-	      else
-		dmean =
-		  pow(min_mass[type] /
-		      ((All.Omega0 - All.OmegaBaryon) * 3 * All.Hubble * All.Hubble / (8 * M_PI * All.G)),
-		      1.0 / 3);
+		for(type = 0; type < 6; type++)
+		{
+			if(count_sum[type] > 0)
+			{
+				if(type == 0)
+					dmean =
+						pow(min_mass[type] / (All.OmegaBaryon * 3 * All.Hubble * All.Hubble / (8 * M_PI * All.G)),
+								1.0 / 3);
+				else
+					dmean =
+						pow(min_mass[type] /
+								((All.Omega0 - All.OmegaBaryon) * 3 * All.Hubble * All.Hubble / (8 * M_PI * All.G)),
+								1.0 / 3);
 
-	      dt = All.MaxRMSDisplacementFac * hfac * dmean / sqrt(v_sum[type] / count_sum[type]);
+				dt = All.MaxRMSDisplacementFac * hfac * dmean / sqrt(v_sum[type] / count_sum[type]);
 
 #ifdef PMGRID
-	      asmth = All.Asmth[0];
+				asmth = All.Asmth[0];
 #ifdef PLACEHIGHRESREGION
-	      if(((1 << type) & (PLACEHIGHRESREGION)))
-		asmth = All.Asmth[1];
+				if(((1 << type) & (PLACEHIGHRESREGION)))
+					asmth = All.Asmth[1];
 #endif
-	      if(asmth < dmean)
-		dt = All.MaxRMSDisplacementFac * hfac * asmth / sqrt(v_sum[type] / count_sum[type]);
+				if(asmth < dmean)
+					dt = All.MaxRMSDisplacementFac * hfac * asmth / sqrt(v_sum[type] / count_sum[type]);
 #endif
 
-	      if(ThisTask == 0)
-		printf("type=%d  dmean=%g asmth=%g minmass=%g a=%g  sqrt(<p^2>)=%g  dlogmax=%g\n",
-		       type, dmean, asmth, min_mass[type], All.Time, sqrt(v_sum[type] / count_sum[type]), dt);
+				if(ThisTask == 0)
+					printf("type=%d  dmean=%g asmth=%g minmass=%g a=%g  sqrt(<p^2>)=%g  dlogmax=%g\n",
+							type, dmean, asmth, min_mass[type], All.Time, sqrt(v_sum[type] / count_sum[type]), dt);
 
-	      if(dt < dt_displacement)
-		dt_displacement = dt;
-	    }
+				if(dt < dt_displacement)
+					dt_displacement = dt;
+			}
+		}
+
+		if(ThisTask == 0)
+			printf("displacement time constraint: %g  (%g)\n", dt_displacement, All.MaxSizeTimestep);
 	}
-
-      if(ThisTask == 0)
-	printf("displacement time constraint: %g  (%g)\n", dt_displacement, All.MaxSizeTimestep);
-    }
 }
 
 /* CHRISTIAN: Moved a part of advance_and_find_timesteps() to a subfunction as it is needed in the dark energy part if enabled */

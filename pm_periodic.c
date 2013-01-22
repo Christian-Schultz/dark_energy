@@ -39,6 +39,7 @@
 void dbg_print(int, fftw_real *);
 void dbg_print_fftw_format(int, fftw_real *);
 void dbg_print_U(int,fftw_real (*in)[3]);
+void pm_stats(char *);
 #endif
 
 static rfftwnd_mpi_plan fft_forward_plan, fft_inverse_plan;
@@ -72,7 +73,7 @@ static fftw_real *rhogrid_tot, *rhogrid_tot_expanded; /* fftw-format arrays */
 static fftw_real *rhogrid_DE_expanded, (*ugrid_DE_expanded)[3]; /* Normal format arrays */
 static fftw_real *rhogrid_DE, (*ugrid_DE)[3]; /* Normal format arrays */
 static fftw_real *drhoda; /* Time derivative of the dark energy density field, dRho/da */
-static fftw_complex *fft_of_rhogrid_DE; /* fft of the dark energy density */
+static fftw_complex *fft_of_rhogrid_tot; /* fft of the total dark energy and dark matter density */
 
 /* Establish which tasks have to communicate with each other to populate the expanded FFTW arrays
  * (if the current task, for example, has the slabs from 4 to 8 it needs slabs 2 and 3 from the task(s) to its "left"
@@ -285,10 +286,12 @@ void DE_periodic_allocate(void){
 	/* rhogrid_tot is only the local array, rhogrid_tot_expanded is the local array and the 2 slabs before and 2 after */
 	rhogrid_tot=& rhogrid_tot_expanded[INDMAP(2,0,0)];
 
-	fft_of_rhogrid_DE = (fftw_complex *) & rhogrid_tot[0];
+	fft_of_rhogrid_tot = (fftw_complex *) & rhogrid_tot[0];
 	static int first_alloc = 1;
-	if(first_alloc==1)
-		master_printf("PM force with dark energy toggled (time=%f). Allocated %u bytes for dark energy potential array\n",All.Time,(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real));
+	if(first_alloc==1){
+		master_printf("PM force with dark energy toggled (time=%f). Allocated %u bytes (%u MB) for dark energy potential array\n",All.Time,(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real),(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real)/(1024*1024));
+		first_alloc=0;
+	}
 }
 #endif
 
@@ -1125,8 +1128,10 @@ void pmforce_periodic_DE(void)
 			}
 		}
 	}
-
 	/* Do the FFT of the density field */
+#ifdef DEBUG
+	pm_stats("statfile.txt");
+#endif
 
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 #ifdef DYNAMICAL_DE
@@ -1159,14 +1164,14 @@ void pmforce_periodic_DE(void)
 					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation */
 #ifdef DYNAMICAL_DE
 					/* Long range smoothing of the dark energy part */
-					fft_of_rhogrid_DE[ip].re *= smth;
-					fft_of_rhogrid_DE[ip].im *= smth;
+					fft_of_rhogrid_tot[ip].re *= smth;
+					fft_of_rhogrid_tot[ip].im *= smth;
 					/* Add 3dP term from the Poisson equation with dark energy.
 					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
 					 * to the dark energy density where cs is the sound speed
 					 * that relates the pressure to its density */				
-					fft_of_rhogrid_DE[ip].re *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
-					fft_of_rhogrid_DE[ip].im *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
+					fft_of_rhogrid_tot[ip].re *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
+					fft_of_rhogrid_tot[ip].im *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 #endif	
 					/* do deconvolution */
 					/* Note: Actual deconvolution is sinc(k_phys BoxSize/(2*PMGRID)), but in the code k = k_phys/(2*M_MPI)*BoxSize  */
@@ -1193,12 +1198,12 @@ void pmforce_periodic_DE(void)
 					fft_of_rhogrid[ip].im *= smth;
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
 #ifdef DYNAMICAL_DE
-					fft_of_rhogrid[ip].re += fft_of_rhogrid_DE[ip].re;
-					fft_of_rhogrid[ip].im += fft_of_rhogrid_DE[ip].im;
+					fft_of_rhogrid[ip].re += fft_of_rhogrid_tot[ip].re;
+					fft_of_rhogrid[ip].im += fft_of_rhogrid_tot[ip].im;
 
-					fft_of_rhogrid_DE[ip].re = fft_of_rhogrid[ip].re;
-					fft_of_rhogrid_DE[ip].im = fft_of_rhogrid[ip].im;
-					/* fft_of_rhogrid_DE now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel */
+					fft_of_rhogrid_tot[ip].re = fft_of_rhogrid[ip].re;
+					fft_of_rhogrid_tot[ip].im = fft_of_rhogrid[ip].im;
+					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel */
 
 #endif
 					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles) */
@@ -1210,28 +1215,16 @@ void pmforce_periodic_DE(void)
 
 			}
 
-#ifdef DYNAMICAL_DE
-#ifdef DEBUG
-	double delta_DE=0;
-	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
-	{
-		delta_DE+=(double) rhogrid_DE[i];
-	}
-
-	MPI_Allreduce(MPI_IN_PLACE,&delta_DE,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	if(slabstart_y==0){
-		mpi_printf("Average density fluctuation of dark energy: %e (mean of rhogrid_DE is: %e)\n",delta_DE,fft_of_rhogrid_DE[0].re);
-		assert(fabs(delta_DE)<1e-3);
+		mpi_printf("fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID) is: %e\n",fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
 	}
-#endif
-#endif
 
 #ifdef DEBUG
 	if(slabstart_y == 0)
 		assert(fft_of_rhogrid[0].im==0.0);
 #ifdef DYNAMICAL_DE
 	if(slabstart_y == 0)
-		assert(fft_of_rhogrid_DE[0].im==0.0);
+		assert(fft_of_rhogrid_tot[0].im==0.0);
 #endif
 #endif
 	if(slabstart_y == 0) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
@@ -1239,7 +1232,7 @@ void pmforce_periodic_DE(void)
 
 #ifdef DYNAMICAL_DE
 	if(slabstart_y == 0) 
-		fft_of_rhogrid_DE[0].re = fft_of_rhogrid_DE[0].im = 0.0;
+		fft_of_rhogrid_tot[0].re = fft_of_rhogrid_tot[0].im = 0.0;
 #endif
 
 	/* Do the FFT to get the potential */
@@ -1528,7 +1521,9 @@ void pmforce_periodic_DE(void)
 #ifdef DEBUG
 	static int next_integer_timestep=0;
 	static double next_timestep=0;
-	if(next_timestep!=0){
+	if(next_timestep!=All.TimeBegin){
+		if(next_timestep!=All.Time)
+			mpi_fprintf(stderr,"Assertion fail: timestep is %f, expected %f\n",All.Time,next_timestep);
 		assert(next_timestep==All.Time);
 		assert(next_integer_timestep==All.Ti_Current);
 	}
@@ -2134,7 +2129,7 @@ void advance_DE(const fftw_real da){
 					U_prev[dim]=ugrid_DE[index][dim];
 				rho_prev=rhogrid_DE[index];
 				drhoda_prev=drhoda[index];
-	
+
 				/* TODO: Update the conversion between dP and drho */
 
 				drhoda_current=-3.0/a*(1+cs*cs)*rho_prev
@@ -2166,90 +2161,225 @@ void advance_DE(const fftw_real da){
 
 }
 
-#ifdef debug
-void dbg_print(int task, fftw_real *expanded_rho_arr){
-	if(thistask==task){
-		fftw_real *ll_arr=expanded_rho_arr;
-		fftw_real *l_arr=expanded_rho_arr+pmgrid*pmgrid;
-		fftw_real *r_arr=expanded_rho_arr+(2+nslab_x)*pmgrid*pMGRID;
-		fftw_real *rr_arr=expanded_rho_arr+(3+nslab_x)*pmgrid*PMGRID;
-		printf("task %i send/recv info\n",thistask);
-		int second_slab= (nslab_x>1) ? 1 : 0; 
-		int last_slab= (nslab_x>1) ? nslab_x-1 : 0; 
-		int second_last_slab= (nslab_x>1) ? nslab_x-2 : 0; 
-		int i,j;
-		fftw_real *rho_arr=expanded_rho_arr+2*pmgrid*pmgrid;
-		printf("slab:\t\t%5i   %5i   %5i   %5i     %5i   %5i   %5i   %5i\n",slabs_to_recv[0],slabs_to_recv[1],slabstart_x,slabstart_x+second_slab,slabstart_x+second_last_slab,slabstart_x+last_slab,slabs_to_recv[2],slabs_to_recv[3]);
-		for( i=0, j=0 ; i<pmgrid ; ++i )
-			for( j=0 ; j<pmgrid ; ++j ){
-				printf("y=%.3i,z=%.3i\t%li   %li | %li   %li ... %li   %li | %li   %li\n",i,j
-						,(long int) ll_arr[i*pMGRID+j],(long int) l_arr[i*PMGRID+j]
-						,(long int) rho_arr[i*PMGRID+j],(long int) rho_arr[second_slab*PMGRID*PMGRID+i*PMGRID+j]
-						,(long int) rho_arr[second_last_slab*PMGRID*PMGRID+i*PMGRID+j],(long int) rho_arr[last_slab*PMGRID*PMGRID+i*PMGRID+j]
-						,(long int) r_arr[i*pmGRID+j],(long int) rr_arr[i*PMGRID+j]);
+#ifdef OUTPUT_DE
+void write_dark_energy_grid(char *fname){
+	int i,npts;
+	float *slabs=my_malloc(nslab_x*PMGRID*PMGRID*sizeof(float));
+
+	for(i=0; i<nslab_x*PMGRID*PMGRID; ++i){
+		slabs[i]=(float) rhogrid_DE[i];
+	}
+
+	npts=nslab_x*PMGRID*PMGRID;
+	if(ThisTask==0){
+		int task;
+		MPI_Status *status;
+		FILE *fd=fopen(fname,"w");
+		unsigned int gridsize=PMGRID;
+		fwrite(&All.Time,1,sizeof(double),fd);
+		fwrite(&gridsize,1,sizeof(unsigned int),fd);
+		fwrite(slabs,npts,sizeof(float),fd);
+		for(task=1;task<NTask;++task){
+			npts=slabs_per_task[task]*PMGRID*PMGRID;
+			MPI_Recv(slabs,npts,MPI_FLOAT,task,task,MPI_COMM_WORLD,status);
+			fwrite(slabs,npts,sizeof(float),fd);
+		}
+
+		fclose(fd);
+	}else{
+		MPI_Send(slabs,npts,MPI_FLOAT,0,ThisTask,MPI_COMM_WORLD);
+	}
+	free(slabs);
+}
+#endif
+
+#ifdef DEBUG
+
+void pm_stats(char* fname){
+	FILE *fd;
+	int i,j,k;
+	static int first_run=1;
+	char buf[128]="";
+	char out[512]="";
+	if(slabstart_y==0){
+		if(first_run==1){
+			fd=fopen(fname,"w");
+			first_run=0;
+			fprintf(fd,"Time\tdelta_dm\tstd_dev_dm\tmin_dm\tmax_dm\tdelta_de\tstd_dev_de\tmin_de\tmax_de\n");
+		}else{
+			fd=fopen(fname,"a");
+		}
+	}
+	double mean=0;
+	double delta=0;
+	double std_dev=0;
+	double delta_mean=0;
+	fftw_real min,max;
+	unsigned int index;
+	for( i=0 ; i<nslab_x ; ++i )
+		for( j=0 ; j<PMGRID ; ++j )
+			for( k=0 ; k<PMGRID ; ++k )
+			{
+				index=i*PMGRID*PMGRID+j*PMGRID+k;
+				mean+=(double) rhogrid[index];
 			}
-	}
 
-	mpi_barrier(mpi_comm_world);
+	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	mean/=PMGRID*PMGRID*PMGRID;
 
-}
-
-void dbg_print_u(int task, fftw_real (*expanded_u_arr)[3]){
-	if(thistask==task){
-		fftw_real (*ll_arr)[3]=expanded_u_arr;
-		fftw_real (*l_arr)[3]=expanded_u_arr+pmgrid*pmgrid;
-		fftw_real (*r_arr)[3]=expanded_u_arr+(2+nslab_x)*pmgriD*PMGRID;
-		fftw_real (*rr_arr)[3]=expanded_u_arr+(3+nslab_x)*pmgrID*PMGRID;
-		printf("task %i u send/recv info\n",thistask);
-		int second_slab= (nslab_x>1) ? 1 : 0; 
-		int last_slab= (nslab_x>1) ? nslab_x-1 : 0; 
-		int second_last_slab= (nslab_x>1) ? nslab_x-2 : 0; 
-		int i,j;
-		fftw_real (*rho_arr)[3]=expanded_u_arr+2*pmgrid*pmgrid;
-		printf("slab:\t\t%5i   %5i   %5i   %5i     %5i   %5i   %5i   %5i\n",slabs_to_recv[0],slabs_to_recv[1],slabstart_x,slabstart_x+second_slab,slabstart_x+second_last_slab,slabstart_x+last_slab,slabs_to_recv[2],slabs_to_recv[3]);
-		for( i=0, j=0 ; i<pmgrid ; ++i )
-			for( j=0 ; j<pmgrid ; ++j ){
-				assert(rho_arr[i*pmgrid+j][0]==rho_arr[i*PMGRID+j][1] && rho_arr[i*PMGRID+j][1]==rho_arr[i*PMGRID+j][2]);
-				printf("y=%.3i,z=%.3i\t%li   %li | %li   %li ... %li   %li | %li   %li\n",i,j
-						,(long int) ll_arr[i*pMGRID+j][0],(long int) l_arr[i*PMGRID+j][0]
-						,(long int) rho_arr[i*PMGRID+j][0],(long int) rho_arr[second_slab*PMGRID*PMGRID+i*PMGRID+j][0]
-						,(long int) rho_arr[second_last_slab*PMGRID*PMGRID+i*PMGRID+j][0],(long int) rho_arr[last_slab*PMGRID*PMGRID+i*PMGRID+j][0]
-						,(long int) r_arr[i*pmGRID+j][0],(long int) rr_arr[i*PMGRID+j][0]);			}
-	}
-
-	mpi_barrier(mpi_comm_world);
-
-}
-void dbg_print_fftw_format(int task, fftw_real *expanded_rho_arr){
-	if(thistask==task){
-		fftw_real *ll_arr=expanded_rho_arr;
-		fftw_real *l_arr=expanded_rho_arr+pmgrid2*pmgrid;
-		fftw_real *r_arr=expanded_rho_arr+(2+nslab_x)*pmgrid2*PMGRID;
-		fftw_real *rr_arr=expanded_rho_arr+(3+nslab_x)*pmgrid2*PMGRID;
-		printf("task %i send/recv info\n",thistask);
-		int second_slab= (nslab_x>1) ? 1 : 0; 
-		int last_slab= (nslab_x>1) ? nslab_x-1 : 0; 
-		int second_last_slab= (nslab_x>1) ? nslab_x-2 : 0; 
-		int i,j;
-		fftw_real *rho_arr=expanded_rho_arr+2*pmgrid2*pmgrid;
-		printf("slab:\t\t%5i   %5i   %5i   %5i     %5i   %5i   %5i   %5i\n",slabs_to_recv[0],slabs_to_recv[1],slabstart_x,slabstart_x+second_slab,slabstart_x+second_last_slab,slabstart_x+last_slab,slabs_to_recv[2],slabs_to_recv[3]);
-		for( i=0, j=0 ; i<pmgrid ; ++i )
-			for( j=0 ; j<pmgrid ; ++j ){
-				printf("y=%.3i,z=%.3i\t%li   %li | %li   %li ... %li   %li | %li   %li\n",i,j
-						,(long int) ll_arr[i*pMGRID2+j],(long int) l_arr[i*PMGRID2+j]
-						,(long int) rho_arr[inDMAP(0,i,j)],(long int) rho_arr[INDMAP(second_slab,i,j)]
-						,(long int) rho_arr[inDMAP(second_last_slab,i,j)],(long int) rho_arr[INDMAP(last_slab,i,j)]
-						,(long int) r_arr[i*pmGRID2+j],(long int) rr_arr[i*PMGRID2+j]);
+	min=rhogrid[0]-mean,max=rhogrid[0]-mean;
+	for( i=0 ; i<nslab_x ; ++i )
+		for( j=0 ; j<PMGRID ; ++j )
+			for( k=0 ; k<PMGRID ; ++k )
+			{
+				index=INDMAP(i,j,k);
+				delta=rhogrid[index]-mean;
+				std_dev+=(double) delta*delta;
+				if(delta<min)
+					min=delta;
+				else if(delta>max)
+					max=delta;
+				delta_mean+=delta;
 			}
+
+	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	std_dev=sqrt(std_dev);
+	delta_mean/=PMGRID*PMGRID*PMGRID;
+	if(slabstart_y==0){
+		mpi_printf("Average density fluctuation of dark matter: %e (std dev: %e, min: %e, max: %e)\n",delta_mean,std_dev,min,max);
+		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t",All.Time,delta_mean,std_dev,min,max);
+		strcat(out,buf);
+		assert(fabs(delta_mean)<1e-3);
 	}
 
-	mpi_barrier(mpi_comm_world);
+	mean=0;
+	delta=0;
+	std_dev=0;
+	delta_mean=0;
+	for( i=0 ; i<nslab_x ; ++i )
+		for( j=0 ; j<PMGRID ; ++j )
+			for( k=0 ; k<PMGRID ; ++k )
+			{
+				index=i*PMGRID*PMGRID+j*PMGRID+k;
+				mean+=(double) rhogrid_DE[index];
+			}
 
+	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	mean/=PMGRID*PMGRID*PMGRID;
+
+	min=rhogrid_DE[0]-mean,max=rhogrid_DE[0]-mean;
+	for( i=0 ; i<nslab_x ; ++i )
+		for( j=0 ; j<PMGRID ; ++j )
+			for( k=0 ; k<PMGRID ; ++k )
+			{
+				index=i*PMGRID*PMGRID+j*PMGRID+k;
+				delta=rhogrid_DE[index]-mean;
+				std_dev+=(double) delta*delta;
+				if(delta<min)
+					min=delta;
+				else if(delta>max)
+					max=delta;
+				delta_mean+=delta;
+			}
+
+	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	std_dev=sqrt(std_dev);
+	delta_mean/=PMGRID*PMGRID*PMGRID;
+
+	if(slabstart_y==0){
+		mpi_printf("Average density fluctuation of dark energy: %e (std dev: %e, min: %e, max: %e)\n",delta,std_dev,min,max);
+		sprintf(buf,"%e\t%e\t%e\t%e\n",delta_mean,std_dev,min,max);
+		strcat(out,buf);
+		fprintf(fd,"%s",out);
+		assert(fabs(delta_mean)<1e-3);
+	}
+	if(slabstart_y==0)
+		fclose(fd);
 }
+/*
+   void dbg_print(int task, fftw_real *expanded_rho_arr){
+   if(thistask==task){
+   fftw_real *ll_arr=expanded_rho_arr;
+   fftw_real *l_arr=expanded_rho_arr+pmgrid*pmgrid;
+   fftw_real *r_arr=expanded_rho_arr+(2+nslab_x)*pmgrid*pMGRID;
+   fftw_real *rr_arr=expanded_rho_arr+(3+nslab_x)*pmgrid*PMGRID;
+   printf("task %i send/recv info\n",thistask);
+   int second_slab= (nslab_x>1) ? 1 : 0; 
+   int last_slab= (nslab_x>1) ? nslab_x-1 : 0; 
+   int second_last_slab= (nslab_x>1) ? nslab_x-2 : 0; 
+   int i,j;
+   fftw_real *rho_arr=expanded_rho_arr+2*pmgrid*pmgrid;
+   printf("slab:\t\t%5i   %5i   %5i   %5i     %5i   %5i   %5i   %5i\n",slabs_to_recv[0],slabs_to_recv[1],slabstart_x,slabstart_x+second_slab,slabstart_x+second_last_slab,slabstart_x+last_slab,slabs_to_recv[2],slabs_to_recv[3]);
+   for( i=0, j=0 ; i<pmgrid ; ++i )
+   for( j=0 ; j<pmgrid ; ++j ){
+   printf("y=%.3i,z=%.3i\t%li   %li | %li   %li ... %li   %li | %li   %li\n",i,j
+   ,(long int) ll_arr[i*pMGRID+j],(long int) l_arr[i*PMGRID+j]
+   ,(long int) rho_arr[i*PMGRID+j],(long int) rho_arr[second_slab*PMGRID*PMGRID+i*PMGRID+j]
+   ,(long int) rho_arr[second_last_slab*PMGRID*PMGRID+i*PMGRID+j],(long int) rho_arr[last_slab*PMGRID*PMGRID+i*PMGRID+j]
+   ,(long int) r_arr[i*pmGRID+j],(long int) rr_arr[i*PMGRID+j]);
+   }
+   }
+
+   mpi_barrier(mpi_comm_world);
+
+   }
+
+   void dbg_print_u(int task, fftw_real (*expanded_u_arr)[3]){
+   if(thistask==task){
+   fftw_real (*ll_arr)[3]=expanded_u_arr;
+   fftw_real (*l_arr)[3]=expanded_u_arr+pmgrid*pmgrid;
+   fftw_real (*r_arr)[3]=expanded_u_arr+(2+nslab_x)*pmgriD*PMGRID;
+   fftw_real (*rr_arr)[3]=expanded_u_arr+(3+nslab_x)*pmgrID*PMGRID;
+   printf("task %i u send/recv info\n",thistask);
+   int second_slab= (nslab_x>1) ? 1 : 0; 
+   int last_slab= (nslab_x>1) ? nslab_x-1 : 0; 
+   int second_last_slab= (nslab_x>1) ? nslab_x-2 : 0; 
+   int i,j;
+   fftw_real (*rho_arr)[3]=expanded_u_arr+2*pmgrid*pmgrid;
+   printf("slab:\t\t%5i   %5i   %5i   %5i     %5i   %5i   %5i   %5i\n",slabs_to_recv[0],slabs_to_recv[1],slabstart_x,slabstart_x+second_slab,slabstart_x+second_last_slab,slabstart_x+last_slab,slabs_to_recv[2],slabs_to_recv[3]);
+   for( i=0, j=0 ; i<pmgrid ; ++i )
+   for( j=0 ; j<pmgrid ; ++j ){
+   assert(rho_arr[i*pmgrid+j][0]==rho_arr[i*PMGRID+j][1] && rho_arr[i*PMGRID+j][1]==rho_arr[i*PMGRID+j][2]);
+   printf("y=%.3i,z=%.3i\t%li   %li | %li   %li ... %li   %li | %li   %li\n",i,j
+   ,(long int) ll_arr[i*pMGRID+j][0],(long int) l_arr[i*PMGRID+j][0]
+   ,(long int) rho_arr[i*PMGRID+j][0],(long int) rho_arr[second_slab*PMGRID*PMGRID+i*PMGRID+j][0]
+   ,(long int) rho_arr[second_last_slab*PMGRID*PMGRID+i*PMGRID+j][0],(long int) rho_arr[last_slab*PMGRID*PMGRID+i*PMGRID+j][0]
+   ,(long int) r_arr[i*pmGRID+j][0],(long int) rr_arr[i*PMGRID+j][0]);			}
+   }
+
+   mpi_barrier(mpi_comm_world);
+
+   }
+   void dbg_print_fftw_format(int task, fftw_real *expanded_rho_arr){
+   if(thistask==task){
+   fftw_real *ll_arr=expanded_rho_arr;
+   fftw_real *l_arr=expanded_rho_arr+pmgrid2*pmgrid;
+   fftw_real *r_arr=expanded_rho_arr+(2+nslab_x)*pmgrid2*PMGRID;
+   fftw_real *rr_arr=expanded_rho_arr+(3+nslab_x)*pmgrid2*PMGRID;
+   printf("task %i send/recv info\n",thistask);
+   int second_slab= (nslab_x>1) ? 1 : 0; 
+   int last_slab= (nslab_x>1) ? nslab_x-1 : 0; 
+   int second_last_slab= (nslab_x>1) ? nslab_x-2 : 0; 
+   int i,j;
+   fftw_real *rho_arr=expanded_rho_arr+2*pmgrid2*pmgrid;
+   printf("slab:\t\t%5i   %5i   %5i   %5i     %5i   %5i   %5i   %5i\n",slabs_to_recv[0],slabs_to_recv[1],slabstart_x,slabstart_x+second_slab,slabstart_x+second_last_slab,slabstart_x+last_slab,slabs_to_recv[2],slabs_to_recv[3]);
+   for( i=0, j=0 ; i<pmgrid ; ++i )
+   for( j=0 ; j<pmgrid ; ++j ){
+   printf("y=%.3i,z=%.3i\t%li   %li | %li   %li ... %li   %li | %li   %li\n",i,j
+   ,(long int) ll_arr[i*pMGRID2+j],(long int) l_arr[i*PMGRID2+j]
+,(long int) rho_arr[inDMAP(0,i,j)],(long int) rho_arr[INDMAP(second_slab,i,j)]
+,(long int) rho_arr[inDMAP(second_last_slab,i,j)],(long int) rho_arr[INDMAP(last_slab,i,j)]
+,(long int) r_arr[i*pmGRID2+j],(long int) rr_arr[i*PMGRID2+j]);
+}
+}
+
+mpi_barrier(mpi_comm_world);
+
+}*/
 /*	const double rhocrit=3*All.Hubble*All.Hubble/(8*M_PI*All.G);
 	const double OmegaLambda=All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW);
 	const FLOAT de_mass=OmegaLambda*rhocrit*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
-	*/
+ */
 #endif
 #endif
 

@@ -14,6 +14,14 @@
 void error_check(void);
 int calc_PM_step(void);
 
+#ifndef DYNAMICAL_DE
+#undef OUTPUT_DE
+#endif
+
+#ifdef OUTPUT_DE
+void write_dark_energy_grid(char*);
+#endif
+
 int mpi_printf(const char * format, ...);
 int mpi_fprintf(FILE * stream, const char * format, ...);
 int master_printf( const char * format, ...);
