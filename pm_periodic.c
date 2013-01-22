@@ -1130,7 +1130,9 @@ void pmforce_periodic_DE(void)
 	}
 	/* Do the FFT of the density field */
 #ifdef DEBUG
-	pm_stats("statfile.txt");
+	char path[256];
+	sprintf(path,"%sstatfile.txt",All.OutputDir);
+	pm_stats(path);
 #endif
 
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
@@ -1521,7 +1523,7 @@ void pmforce_periodic_DE(void)
 #ifdef DEBUG
 	static int next_integer_timestep=0;
 	static double next_timestep=0;
-	if(next_timestep!=All.TimeBegin){
+	if(next_timestep!=0){
 		if(next_timestep!=All.Time)
 			mpi_fprintf(stderr,"Assertion fail: timestep is %f, expected %f\n",All.Time,next_timestep);
 		assert(next_timestep==All.Time);
@@ -2205,7 +2207,7 @@ void pm_stats(char* fname){
 		if(first_run==1){
 			fd=fopen(fname,"w");
 			first_run=0;
-			fprintf(fd,"Time\tdelta_dm\tstd_dev_dm\tmin_dm\tmax_dm\tdelta_de\tstd_dev_de\tmin_de\tmax_de\n");
+			fprintf(fd,"Time        \tdelta_dm    \tstd_dev_dm  \tmin_dm      \tmax_dm      \tdelta_de    \tstd_dev_de  \tmin_de      \tmax_de      \n");
 		}else{
 			fd=fopen(fname,"a");
 		}
