@@ -111,7 +111,8 @@ void savepositions(int num)
       MPI_Barrier(MPI_COMM_WORLD);
     }
 #ifdef OUTPUT_DE
-  /* See pm_periodic.c for function*/if(All.Time>=All.DarkEnergyBegin){
+  /* See pm_periodic.c for function*/
+  if(All.Time>=All.DarkEnergyBegin){
 	  sprintf(buf, "%s%s_%03d", All.OutputDir, All.DarkEnergyFileBase, num);
 	  write_dark_energy_grid(buf);
   }

@@ -893,6 +893,7 @@ void pmforce_periodic_DE(void)
 	int rep, ncont, cont_sendmin[2], cont_sendmax[2], cont_recvmin[2], cont_recvmax[2];
 	int dimx, dimy, dimz, recv_dimx, recv_dimy, recv_dimz;
 	MPI_Status status;
+	char statname[MAXLEN_FILENAME];
 
 
 	if(ThisTask == 0)
@@ -1128,9 +1129,8 @@ void pmforce_periodic_DE(void)
 		}
 	}
 	/* Do the FFT of the density field */
-#ifdef DEBUG
-	pm_stats(All.DarkEnergyStatFile);
-#endif
+	sprintf(statname,"%s%s",All.OutputDir,All.DarkEnergyStatFile);
+	pm_stats(statname);
 
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 #ifdef DYNAMICAL_DE
@@ -2139,8 +2139,8 @@ void advance_DE(const fftw_real da){
 				{
 					dUda[dim]=-U_prev[dim]/a
 						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])/(a*a*H)
-						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1+w)*rho_mean+(1+cs)*rho_prev))
-						-U_prev[dim]*(cs*cs*drhoda_prev-3/a*w*rho_mean)/((1+w)*rho_mean+(1+cs*cs)*rho_prev)
+						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1+w)*rho_mean+(1+cs*cs)*rho_prev))
+						-U_prev[dim]*(cs*cs*drhoda_prev-3/a*(1+w)*rho_mean)/((1+w)*rho_mean+(1+cs*cs)*rho_prev)
 						-1/(a*a*H)*gradphi[dim];
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
@@ -2216,7 +2216,7 @@ void pm_stats(char* fname){
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
 			{
-				index=i*PMGRID*PMGRID+j*PMGRID+k;
+				index=INDMAP(i,j,k);
 				mean+=(double) rhogrid[index];
 			}
 
@@ -2240,6 +2240,7 @@ void pm_stats(char* fname){
 
 	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	std_dev=sqrt(std_dev);
+	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 	if(slabstart_y==0){
 		mpi_printf("Average density fluctuation of dark matter: %e (std dev: %e, min: %e, max: %e)\n",delta_mean,std_dev,min,max);
@@ -2280,6 +2281,7 @@ void pm_stats(char* fname){
 
 	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	std_dev=sqrt(std_dev);
+	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 
 	if(slabstart_y==0){
