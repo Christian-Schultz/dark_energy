@@ -2140,7 +2140,7 @@ void advance_DE(const fftw_real da){
 					dUda[dim]=-U_prev[dim]/a
 						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])/(a*a*H)
 						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1+w)*rho_mean+(1+cs*cs)*rho_prev))
-						-U_prev[dim]*(cs*cs*drhoda_prev-3/a*(1+w)*rho_mean)/((1+w)*rho_mean+(1+cs*cs)*rho_prev)
+						-U_prev[dim]*(cs*cs*drhoda_prev-3/a*w*(1+w)*rho_mean)/((1+w)*rho_mean+(1+cs*cs)*rho_prev)
 						-1/(a*a*H)*gradphi[dim];
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
