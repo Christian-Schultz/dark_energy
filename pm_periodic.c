@@ -2201,7 +2201,7 @@ void pm_stats(char* fname){
 		if(first_run==1){
 			fd=fopen(fname,"w");
 			first_run=0;
-			fprintf(fd,"Time        \tdelta_dm    \tstd_dev_dm  \tmin_dm      \tmax_dm      \tdelta_de    \tstd_dev_de  \tmin_de      \tmax_de      \n");
+			fprintf(fd,"Time        \tmean_dm     \tdelta_dm    \tstd_dev_dm  \tmin_dm      \tmax_dm      \tmean_de     \tdelta_de    \tstd_dev_de  \tmin_de      \tmax_de      \n");
 		}else{
 			fd=fopen(fname,"a");
 		}
@@ -2244,7 +2244,7 @@ void pm_stats(char* fname){
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 	if(slabstart_y==0){
 		mpi_printf("Average density fluctuation of dark matter: %e (std dev: %e, min: %e, max: %e)\n",delta_mean,std_dev,min,max);
-		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t",All.Time,delta_mean,std_dev,min,max);
+		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		assert(fabs(delta_mean)<1e-3);
 	}
@@ -2286,7 +2286,7 @@ void pm_stats(char* fname){
 
 	if(slabstart_y==0){
 		mpi_printf("Average density fluctuation of dark energy: %e (std dev: %e, min: %e, max: %e)\n",delta,std_dev,min,max);
-		sprintf(buf,"%e\t%e\t%e\t%e\n",delta_mean,std_dev,min,max);
+		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
 		assert(fabs(delta_mean)<1e-3);
