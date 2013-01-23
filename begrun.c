@@ -406,6 +406,10 @@ void read_parameter_file(char *fname)
       addr[nt] = All.DarkEnergyFileBase;
       id[nt++] = STRING;
 
+      strcpy(tag[nt], "DarkEnergyStatFile");
+      addr[nt] = All.DarkEnergyStatFile;
+      id[nt++] = STRING;
+
       strcpy(tag[nt], "BoxSize");
       addr[nt] = &All.BoxSize;
       id[nt++] = DOUBLE;

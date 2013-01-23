@@ -959,8 +959,7 @@ void pmforce_periodic_DE(void)
 			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass */
 				for( k=0 ; k<PMGRID ; ++k )
 				{
-					/* TODO: Is this right? */
-					rhogrid_tot[i*PMGRID2*PMGRID+j*PMGRID2+k]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
+					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 				}
 
 
@@ -1130,9 +1129,7 @@ void pmforce_periodic_DE(void)
 	}
 	/* Do the FFT of the density field */
 #ifdef DEBUG
-	char path[256];
-	sprintf(path,"%sstatfile.txt",All.OutputDir);
-	pm_stats(path);
+	pm_stats(All.DarkEnergyStatFile);
 #endif
 
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
@@ -1140,7 +1137,7 @@ void pmforce_periodic_DE(void)
 	/* Do the FFT of the dark energy density field (the dark energy density field has been converted to mass in rhogrid_tot) */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
 #endif
-	/* multiply with Green's function for the potential, deconvolve */
+	/* multiply with the Green's function for the potential, deconvolve */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
@@ -1162,20 +1159,7 @@ void pmforce_periodic_DE(void)
 
 				if(k2 > 0)
 				{
-					ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation */
-#ifdef DYNAMICAL_DE
-					/* Long range smoothing of the dark energy part */
-					fft_of_rhogrid_tot[ip].re *= smth;
-					fft_of_rhogrid_tot[ip].im *= smth;
-					/* Add 3dP term from the Poisson equation with dark energy.
-					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
-					 * to the dark energy density where cs is the sound speed
-					 * that relates the pressure to its density */				
-					fft_of_rhogrid_tot[ip].re *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
-					fft_of_rhogrid_tot[ip].im *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
-#endif	
-					/* do deconvolution */
+					/* do smoothing and deconvolution */
 					/* Note: Actual deconvolution is sinc(k_phys BoxSize/(2*PMGRID)), but in the code k = k_phys/(2*M_MPI)*BoxSize  */
 					fx = fy = fz = 1;
 					if(kx != 0)
@@ -1194,24 +1178,37 @@ void pmforce_periodic_DE(void)
 						fz = sin(fz) / fz;
 					}
 					ff = 1 / (fx * fy * fz);
-					smth *=  ff * ff; 
 
-					fft_of_rhogrid[ip].re *= smth;
-					fft_of_rhogrid[ip].im *= smth;
+					ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation */
+					fft_of_rhogrid[ip].re *= ff*ff;
+					fft_of_rhogrid[ip].im *= ff*ff;
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
+
 #ifdef DYNAMICAL_DE
-					fft_of_rhogrid[ip].re += fft_of_rhogrid_tot[ip].re;
-					fft_of_rhogrid[ip].im += fft_of_rhogrid_tot[ip].im;
+					/* Add 3dP term from the Poisson equation with dark energy.
+					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
+					 * to the dark energy density where cs is the sound speed
+					 * that relates the pressure to its density */				
+					fft_of_rhogrid_tot[ip].re *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
+					fft_of_rhogrid_tot[ip].im *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
+					
+					fft_of_rhogrid_tot[ip].re += fft_of_rhogrid[ip].re;
+					fft_of_rhogrid_tot[ip].im += fft_of_rhogrid[ip].im;
+					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done. */
 
-					fft_of_rhogrid_tot[ip].re = fft_of_rhogrid[ip].re;
-					fft_of_rhogrid_tot[ip].im = fft_of_rhogrid[ip].im;
-					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel */
+					/* Copy total density */
+					fft_of_rhogrid[ip].re = fft_of_rhogrid_tot[ip].re;
+					fft_of_rhogrid[ip].im = fft_of_rhogrid_tot[ip].im;
 
+					/* Multiply with the Green's function (constants will be corrected by potfac in advance_DE. Note the difference between the physical k and the integer k used here as mentioned above) */
+					fft_of_rhogrid_tot[ip].re *= -1.0/k2;
+					fft_of_rhogrid_tot[ip].im *= -1.0/k2;
 #endif
-					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles) */
-					fft_of_rhogrid[ip].re *= ff * ff;
-					fft_of_rhogrid[ip].im *= ff * ff;
-					/* fft_of_rhogrid now contains FFT(rhogrid)*DC*DC+FFT(rhogrid_DE)*DC where DC is the deconvolution kernel */
+					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). Multiply with the Green's function and smoothing kernel */
+					fft_of_rhogrid[ip].re *= ff*ff*smth;
+					fft_of_rhogrid[ip].im *= ff*ff*smth;
+					/* fft_of_rhogrid now contains FFT(rhogrid)*DC*DC+FFT(rhogrid_DE)*DC where DC is the deconvolution kernel (the Green's function and smoothing kernel have also been applied) */
 					/* end deconvolution. Note that the pressure term in the Poisson equation has been added above by modifying the dark energy density */
 				}
 
@@ -2061,7 +2058,7 @@ void advance_DE(const fftw_real da){
 	for( x=2 ; x<nslab_x+2 ; ++x ) /* Loop over slabs */
 		for( y=0 ; y<PMGRID ; ++y )
 			for( z=0 ; z<PMGRID ; ++z ){
-				for( dim=0 ; dim<3 ; ++dim ) /* Loop over x,y,z components for the gradients */
+				for( dim=0 ; dim<3 ; ++dim ) /* Loop over x,y,z components of the gradients */
 				{
 					xrr = xll = xr = xl = x;
 					yrr = yll = yr = yl = y;
@@ -2194,9 +2191,6 @@ void write_dark_energy_grid(char *fname){
 	free(slabs);
 }
 #endif
-
-#ifdef DEBUG
-
 void pm_stats(char* fname){
 	FILE *fd;
 	int i,j,k;
@@ -2298,6 +2292,7 @@ void pm_stats(char* fname){
 	if(slabstart_y==0)
 		fclose(fd);
 }
+#ifdef DEBUG
 /*
    void dbg_print(int task, fftw_real *expanded_rho_arr){
    if(thistask==task){
