@@ -2176,6 +2176,7 @@ void write_dark_energy_grid(char *fname){
 		FILE *fd=fopen(fname,"w");
 		unsigned int gridsize=PMGRID;
 		fwrite(&All.Time,1,sizeof(double),fd);
+		fwrite(&All.BoxSize,1,sizeof(double),fd);
 		fwrite(&gridsize,1,sizeof(unsigned int),fd);
 		fwrite(slabs,npts,sizeof(float),fd);
 		for(task=1;task<NTask;++task){
@@ -2197,6 +2198,12 @@ void pm_stats(char* fname){
 	static int first_run=1;
 	char buf[128]="";
 	char out[512]="";
+/*	const double rhocrit=3*All.Hubble*All.Hubble/(8*M_PI*All.G);
+	const double OmegaLambda=All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW);
+	const FLOAT de_mass=OmegaLambda*rhocrit*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
+ */
+	master_printf("Current Omega_matter=%.2f, current Omega_lambda=%.2f\n",All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3*(1+All.DarkEnergyW)));
+
 	if(slabstart_y==0){
 		if(first_run==1){
 			fd=fopen(fname,"w");
@@ -2223,7 +2230,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	mean/=PMGRID*PMGRID*PMGRID;
 
-	min=rhogrid[0]-mean,max=rhogrid[0]-mean;
+	min=max=0;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
@@ -2239,6 +2246,7 @@ void pm_stats(char* fname){
 			}
 
 	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	std_dev/=PMGRID*PMGRID*PMGRID;
 	std_dev=sqrt(std_dev);
 	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
@@ -2264,7 +2272,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	mean/=PMGRID*PMGRID*PMGRID;
 
-	min=rhogrid_DE[0]-mean,max=rhogrid_DE[0]-mean;
+	min=max=0;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
@@ -2280,12 +2288,13 @@ void pm_stats(char* fname){
 			}
 
 	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	std_dev/=PMGRID*PMGRID*PMGRID;
 	std_dev=sqrt(std_dev);
 	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 
 	if(slabstart_y==0){
-		mpi_printf("Average density fluctuation of dark energy: %e (std dev: %e, min: %e, max: %e)\n",delta,std_dev,min,max);
+		mpi_printf("Average density fluctuation of dark energy: %e (std dev: %e, min: %e, max: %e)\n",delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);

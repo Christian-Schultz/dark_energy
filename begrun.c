@@ -395,7 +395,7 @@ void read_parameter_file(char *fname)
       id[nt++] = DOUBLE;
       
       strcpy(tag[nt], "DarkEnergySoundSpeed");
-      addr[nt] = &All.DarkEnergyW;
+      addr[nt] = &All.DarkEnergySoundSpeed;
       id[nt++] = DOUBLE;
 
       strcpy(tag[nt], "DarkEnergyBegin");
