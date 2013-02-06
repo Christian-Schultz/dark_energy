@@ -13,6 +13,7 @@
 /* Start modified Gadget2 */
 void error_check(void);
 int calc_PM_step(void);
+void find_dt_displacement_constraint(double); /* Not modified, but function prototype needed */
 
 #ifndef DYNAMICAL_DE
 #undef OUTPUT_DE

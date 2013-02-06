@@ -664,6 +664,7 @@ void find_dt_displacement_constraint(double hfac /*!<  should be  a^2*H(a)  */ )
 /* CHRISTIAN: Moved a part of advance_and_find_timesteps() to a subfunction as it is needed in the dark energy part if enabled */
 int calc_PM_step(void){
 	int ti_step = TIMEBASE;
+	
 	while(ti_step > (dt_displacement / All.Timebase_interval))
 		ti_step >>= 1;
 

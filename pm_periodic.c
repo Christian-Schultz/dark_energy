@@ -290,6 +290,9 @@ void DE_periodic_allocate(void){
 	static int first_alloc = 1;
 	if(first_alloc==1){
 		master_printf("PM force with dark energy toggled (time=%f). Allocated %u bytes (%u MB) for dark energy potential array\n",All.Time,(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real),(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real)/(1024*1024));
+#ifdef DEBUG
+		master_printf("Dark energy sound speed: %f, dark energy equation of state: %f\n",All.DarkEnergySoundSpeed,All.DarkEnergyW);
+#endif
 		first_alloc=0;
 	}
 }
@@ -1516,13 +1519,16 @@ void pmforce_periodic_DE(void)
 	free(status_DE);
 	status_DE=NULL;
 
-
+	
+	double hubble_a = All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) +  All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW));
+	hubble_a = All.Hubble * sqrt(hubble_a);
+	find_dt_displacement_constraint(hubble_a*All.Time*All.Time);
 #ifdef DEBUG
 	static int next_integer_timestep=0;
 	static double next_timestep=0;
 	if(next_timestep!=0){
 		if(next_timestep!=All.Time)
-			mpi_fprintf(stderr,"Assertion fail: timestep is %f, expected %f\n",All.Time,next_timestep);
+			mpi_fprintf(stderr,"Assertion fail: timestep is %f (integer: %i), expected %f (integer: %i)\n",All.Time,All.Ti_Current,next_timestep,next_integer_timestep);
 		assert(next_timestep==All.Time);
 		assert(next_integer_timestep==All.Ti_Current);
 	}
@@ -2198,10 +2204,10 @@ void pm_stats(char* fname){
 	static int first_run=1;
 	char buf[128]="";
 	char out[512]="";
-/*	const double rhocrit=3*All.Hubble*All.Hubble/(8*M_PI*All.G);
-	const double OmegaLambda=All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW);
-	const FLOAT de_mass=OmegaLambda*rhocrit*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
- */
+	/*	const double rhocrit=3*All.Hubble*All.Hubble/(8*M_PI*All.G);
+		const double OmegaLambda=All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW);
+		const FLOAT de_mass=OmegaLambda*rhocrit*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
+	 */
 	master_printf("Current Omega_matter=%.2f, current Omega_lambda=%.2f\n",All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3*(1+All.DarkEnergyW)));
 
 	if(slabstart_y==0){
