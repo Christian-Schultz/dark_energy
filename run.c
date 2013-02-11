@@ -62,6 +62,30 @@ void run(void)
 					 * momentum space and compute new
 					 * timesteps for them
 					 */
+      
+#ifdef DEBUG
+#ifdef PMGRID
+	double mean_grav_PM[3]={0,0,0};
+	double mean_grav_tree[3]={0,0,0};
+	int i,dim;
+	for(i=0;i<NumPart;++i){
+		for(dim=0;dim<3;++dim){
+			mean_grav_PM[dim]=P[i].GravPM[dim];
+			mean_grav_tree[dim]=P[i].GravAccel[dim];
+		}
+	}
+	for(dim=0;dim<3;++dim){
+		mean_grav_PM[dim]/=NumPart;
+		mean_grav_tree[dim]/=NumPart;
+	}
+
+	MPI_Allreduce(MPI_IN_PLACE,mean_grav_PM,3,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	MPI_Allreduce(MPI_IN_PLACE,mean_grav_tree,3,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	master_printf("Average PM accelerations: (%f| %f| %f|)\n",mean_grav_PM[0],mean_grav_PM[1],mean_grav_PM[2]);
+	master_printf("Average tree accelerations: (%f| %f| %f|)\n",mean_grav_tree[0],mean_grav_tree[1],mean_grav_tree[2]);
+#endif
+#endif
+      
       All.NumCurrentTiStep++;
 
       /* Check whether we need to interrupt the run */

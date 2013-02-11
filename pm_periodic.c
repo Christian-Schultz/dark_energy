@@ -177,11 +177,13 @@ int comm_order(int nslabs){
 /* One-time allocation of the dark energy arrays */
 void DE_allocate(int nx){
 
+	master_printf("Code compiled with DYNAMICAL_DE, setting up dark energy environment\n");
+
 	if(nx>0){
 		/* Expand the arrays with 4 extra slabs to store communication */
 		rhogrid_DE_expanded=my_malloc((4+nx)*PMGRID*PMGRID*sizeof(fftw_real));
 		ugrid_DE_expanded=my_malloc(3*(4+nx)*PMGRID*PMGRID*sizeof(fftw_real));
-	
+
 		/* Arrays corresponding to the actual slabs of this task */
 		rhogrid_DE=rhogrid_DE_expanded+2*PMGRID*PMGRID;
 		ugrid_DE=ugrid_DE_expanded+2*PMGRID*PMGRID;
@@ -282,7 +284,7 @@ void pm_init_periodic(void)
 void DE_periodic_allocate(void){
 	/* Expand with 4 slabs to store communication data */
 	rhogrid_tot_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
-	
+
 	/* rhogrid_tot is only the local array, rhogrid_tot_expanded is the local array and the 2 slabs before and 2 after */
 	rhogrid_tot=& rhogrid_tot_expanded[INDMAP(2,0,0)];
 
@@ -347,7 +349,7 @@ void pm_init_periodic_allocate(int dimprod)
 }
 
 /*! This routine frees the space allocated for the parallel FFT algorithm (except dark energy arrays).
-*/
+ */
 void pm_init_periodic_free(void)
 {
 	/* allocate the memory to hold the FFT fields */
@@ -1140,6 +1142,11 @@ void pmforce_periodic_DE(void)
 	/* Do the FFT of the dark energy density field (the dark energy density field has been converted to mass in rhogrid_tot) */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
 #endif
+#ifdef DEBUG
+	if(slabstart_y==0)
+		printf("fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID): %e\n", fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
+#endif
+
 	/* multiply with the Green's function for the potential, deconvolve */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -1195,7 +1202,7 @@ void pmforce_periodic_DE(void)
 					 * that relates the pressure to its density */				
 					fft_of_rhogrid_tot[ip].re *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 					fft_of_rhogrid_tot[ip].im *= 1+3*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
-					
+
 					fft_of_rhogrid_tot[ip].re += fft_of_rhogrid[ip].re;
 					fft_of_rhogrid_tot[ip].im += fft_of_rhogrid[ip].im;
 					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done. */
@@ -1219,16 +1226,9 @@ void pmforce_periodic_DE(void)
 
 	if(slabstart_y==0){
 		mpi_printf("fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID) is: %e\n",fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
+		mpi_printf("fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID) is: %e\n",fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID));
 	}
 
-#ifdef DEBUG
-	if(slabstart_y == 0)
-		assert(fft_of_rhogrid[0].im==0.0);
-#ifdef DYNAMICAL_DE
-	if(slabstart_y == 0)
-		assert(fft_of_rhogrid_tot[0].im==0.0);
-#endif
-#endif
 	if(slabstart_y == 0) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
 		fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
@@ -1519,7 +1519,7 @@ void pmforce_periodic_DE(void)
 	free(status_DE);
 	status_DE=NULL;
 
-	
+
 	double hubble_a = All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) +  All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW));
 	hubble_a = All.Hubble * sqrt(hubble_a);
 	find_dt_displacement_constraint(hubble_a*All.Time*All.Time);
@@ -2039,6 +2039,10 @@ void advance_DE(const fftw_real da){
 	const fftw_real cs_units=cs*C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+w)));
 	const fftw_real rho_mean=All.OmegaLambda*3*All.Hubble*All.Hubble/(8*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
+#ifdef DEBUG
+	master_printf("rho_mean is: %e, cs_units is: %e\n",rho_mean, cs_units);
+#endif
+
 	/* Indexing variables */
 	int x,y,z;
 	unsigned int index;
@@ -2204,10 +2208,7 @@ void pm_stats(char* fname){
 	static int first_run=1;
 	char buf[128]="";
 	char out[512]="";
-	/*	const double rhocrit=3*All.Hubble*All.Hubble/(8*M_PI*All.G);
-		const double OmegaLambda=All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW);
-		const FLOAT de_mass=OmegaLambda*rhocrit*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
-	 */
+
 	master_printf("Current Omega_matter=%.2f, current Omega_lambda=%.2f\n",All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3*(1+All.DarkEnergyW)));
 
 	if(slabstart_y==0){
@@ -2300,7 +2301,7 @@ void pm_stats(char* fname){
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 
 	if(slabstart_y==0){
-		mpi_printf("Average density fluctuation of dark energy: %e (std dev: %e, min: %e, max: %e)\n",delta_mean,std_dev,min,max);
+		mpi_printf("Average density fluctuation of dark energy: %e (std dev: %e, min: %e, max: %e)\n",mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
