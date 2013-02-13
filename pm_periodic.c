@@ -36,6 +36,7 @@
 #define INDMAP(i,j,k) ((i)*PMGRID*PMGRID2+(j)*PMGRID2+k) /* Map (i,j,k) in 3 dimensional array (dimx X PMGRID X PMGRID2) to 1 dimensional array */
 
 #ifdef DEBUG
+#define SHOUT(x) do{if(x) mpi_printf("SHOUT: !(" #x ")\n");} while(0)
 void dbg_print(int, fftw_real *);
 void dbg_print_fftw_format(int, fftw_real *);
 void dbg_print_U(int,fftw_real (*in)[3]);
@@ -1143,8 +1144,10 @@ void pmforce_periodic_DE(void)
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
 #endif
 #ifdef DEBUG
-	if(slabstart_y==0)
-		printf("fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID): %e\n", fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
+	if(slabstart_y==0){
+		printf("Dark energy mean: %e\n", fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
+		printf("Dark matter mean: %e\n", fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID));
+	}
 #endif
 
 	/* multiply with the Green's function for the potential, deconvolve */
@@ -1190,6 +1193,14 @@ void pmforce_periodic_DE(void)
 					ff = 1 / (fx * fy * fz);
 
 					ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+#ifdef DEBUG
+					if(slabstart_y==0 && ip==0){
+						printf("*********ip=0\n");
+						SHOUT(ip==0);
+
+					}
+
+#endif
 					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation */
 					fft_of_rhogrid[ip].re *= ff*ff;
 					fft_of_rhogrid[ip].im *= ff*ff;
@@ -1224,10 +1235,6 @@ void pmforce_periodic_DE(void)
 
 			}
 
-	if(slabstart_y==0){
-		mpi_printf("fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID) is: %e\n",fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
-		mpi_printf("fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID) is: %e\n",fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID));
-	}
 
 	if(slabstart_y == 0) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
 		fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
@@ -1534,6 +1541,7 @@ void pmforce_periodic_DE(void)
 	}
 	next_integer_timestep=All.Ti_Current+calc_PM_step();
 	next_timestep=All.TimeBegin*exp(next_integer_timestep*All.Timebase_interval);
+	master_printf("Next PM timestep: %f, da=%e\n",next_timestep,next_timestep-All.Time);
 #else
 	int next_integer_timestep=All.Ti_Current+calc_PM_step();
 	double next_timestep=All.TimeBegin*exp(next_integer_timestep*All.Timebase_interval);
@@ -2035,6 +2043,7 @@ void advance_DE(const fftw_real da){
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
 	const fftw_real a=All.Time;
 	const fftw_real w=All.DarkEnergyW;
+	const fftw_real w_units=All.DarkEnergyW*C/All.UnitVelocity_in_cm_per_s*C/All.UnitVelocity_in_cm_per_s; /* Dark energy equation of state times speed of light squared */
 	const fftw_real cs=All.DarkEnergySoundSpeed;
 	const fftw_real cs_units=cs*C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+w)));
@@ -2150,7 +2159,7 @@ void advance_DE(const fftw_real da){
 					dUda[dim]=-U_prev[dim]/a
 						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])/(a*a*H)
 						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1+w)*rho_mean+(1+cs*cs)*rho_prev))
-						-U_prev[dim]*(cs*cs*drhoda_prev-3/a*w*(1+w)*rho_mean)/((1+w)*rho_mean+(1+cs*cs)*rho_prev)
+						-U_prev[dim]*(cs*cs*drhoda_prev-3/a*w_units*(1+w)*rho_mean)/((1+w)*rho_mean+(1+cs*cs)*rho_prev)
 						-1/(a*a*H)*gradphi[dim];
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
@@ -2258,7 +2267,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 	if(slabstart_y==0){
-		mpi_printf("Average density fluctuation of dark matter: %e (std dev: %e, min: %e, max: %e)\n",delta_mean,std_dev,min,max);
+		printf("Average density fluctuation of dark matter: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		assert(fabs(delta_mean)<1e-3);
@@ -2272,8 +2281,8 @@ void pm_stats(char* fname){
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
 			{
-				index=i*PMGRID*PMGRID+j*PMGRID+k;
-				mean+=(double) rhogrid_DE[index];
+				index=INDMAP(i,j,k);
+				mean+=(double) rhogrid_tot[index];
 			}
 
 	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
@@ -2284,8 +2293,8 @@ void pm_stats(char* fname){
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
 			{
-				index=i*PMGRID*PMGRID+j*PMGRID+k;
-				delta=rhogrid_DE[index]-mean;
+				index=INDMAP(i,j,k);
+				delta=rhogrid_tot[index]-mean;
 				std_dev+=(double) delta*delta;
 				if(delta<min)
 					min=delta;
@@ -2301,7 +2310,7 @@ void pm_stats(char* fname){
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 
 	if(slabstart_y==0){
-		mpi_printf("Average density fluctuation of dark energy: %e (std dev: %e, min: %e, max: %e)\n",mean,std_dev,min,max);
+		mpi_printf("Average density fluctuation of dark energy: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
