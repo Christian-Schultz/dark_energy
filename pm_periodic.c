@@ -963,10 +963,10 @@ void pmforce_periodic_DE(void)
 
 		/* Copy rhogrid_DE to rhogrid_tot. Note rhogrid_DE is an nslab_x*PMGRID*PMGRID array while rhogrid_tot is in the fftw format nslab_x*PMGRID*PMGRID2 */
 		for( i=0 ; i<nslab_x ; ++i )
-			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass */
+			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass. Multiply with a^3 since we need m_phys, and not m_comoving */
 				for( k=0 ; k<PMGRID ; ++k )
 				{
-					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
+					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.Time*All.Time*All.Time*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 				}
 
 
@@ -1201,7 +1201,7 @@ void pmforce_periodic_DE(void)
 					}
 
 #endif
-					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation */
+					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation in physical coordinates */
 					fft_of_rhogrid[ip].re *= ff*ff;
 					fft_of_rhogrid[ip].im *= ff*ff;
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
@@ -1235,7 +1235,11 @@ void pmforce_periodic_DE(void)
 
 			}
 
-
+	/* TODO: Is this a good idea?*/
+	/*if(slabstart_y == 0){
+	double mean_dens=fft_of_rhogrid[0].re
+	double zero=fft_of_rhogrid[0].im
+	}*/
 	if(slabstart_y == 0) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
 		fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
@@ -2043,7 +2047,6 @@ void advance_DE(const fftw_real da){
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
 	const fftw_real a=All.Time;
 	const fftw_real w=All.DarkEnergyW;
-	const fftw_real w_units=All.DarkEnergyW*C/All.UnitVelocity_in_cm_per_s*C/All.UnitVelocity_in_cm_per_s; /* Dark energy equation of state times speed of light squared */
 	const fftw_real cs=All.DarkEnergySoundSpeed;
 	const fftw_real cs_units=cs*C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+w)));
@@ -2150,17 +2153,17 @@ void advance_DE(const fftw_real da){
 
 				/* TODO: Update the conversion between dP and drho */
 
-				drhoda_current=-3.0/a*(1+cs*cs)*rho_prev
-					-(1+cs*cs)/(a*a*H)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2])
-					-((1+w)*rho_mean+(1+cs*cs)*rho_prev)/(a*a*H)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
+				drhoda_current=-3.0/a*(1.0+cs*cs)*rho_prev
+					-(1.0+cs*cs)/(a*a*H)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2])
+					-((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)/(a*a*H)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 
 				for( dim=0 ;dim<3  ; ++dim )
 				{
 					dUda[dim]=-U_prev[dim]/a
 						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])/(a*a*H)
-						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1+w)*rho_mean+(1+cs*cs)*rho_prev))
-						-U_prev[dim]*(cs*cs*drhoda_prev-3/a*w_units*(1+w)*rho_mean)/((1+w)*rho_mean+(1+cs*cs)*rho_prev)
-						-1/(a*a*H)*gradphi[dim];
+						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev))
+						-U_prev[dim]*(cs*cs*drhoda_prev-3.0/a*w*(1.0+w)*rho_mean)/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
+						-1.0/(a*a*H)*gradphi[dim];
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
 				}
@@ -2273,6 +2276,7 @@ void pm_stats(char* fname){
 		assert(fabs(delta_mean)<1e-3);
 	}
 
+	/* Dark energy part */
 	mean=0;
 	delta=0;
 	std_dev=0;
