@@ -75,9 +75,10 @@ void error_check(void){
 		endrun(0);
 	}
 #ifdef DYNAMICAL_DE
-	if(All.ComovingIntegrationOn==0)
+	if(All.ComovingIntegrationOn==0){
 		master_fprintf(stderr,"Error: Comoving integration is disabled, but dark energy enabled. This is not currently supported. Terminating\n");
-	endrun(0);
+		endrun(0);
+	}
 #endif
 
 

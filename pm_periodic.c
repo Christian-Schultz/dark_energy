@@ -963,10 +963,10 @@ void pmforce_periodic_DE(void)
 
 		/* Copy rhogrid_DE to rhogrid_tot. Note rhogrid_DE is an nslab_x*PMGRID*PMGRID array while rhogrid_tot is in the fftw format nslab_x*PMGRID*PMGRID2 */
 		for( i=0 ; i<nslab_x ; ++i )
-			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass. Multiply with a^3 since we need m_phys, and not m_comoving */
+			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass. */
 				for( k=0 ; k<PMGRID ; ++k )
 				{
-					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.Time*All.Time*All.Time*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
+					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 				}
 
 
@@ -1235,11 +1235,6 @@ void pmforce_periodic_DE(void)
 
 			}
 
-	/* TODO: Is this a good idea?*/
-	/*if(slabstart_y == 0){
-	double mean_dens=fft_of_rhogrid[0].re
-	double zero=fft_of_rhogrid[0].im
-	}*/
 	if(slabstart_y == 0) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
 		fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
@@ -2052,7 +2047,8 @@ void advance_DE(const fftw_real da){
 	const fftw_real cs=All.DarkEnergySoundSpeed;
 	const fftw_real cs_units=cs*C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+w)));
-	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
+//	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
+	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3*w); /*Co-moving mean dark energy density in the universe */
 
 	/* Indexing variables */
 	int x,y,z;
@@ -2181,38 +2177,6 @@ void advance_DE(const fftw_real da){
 
 }
 
-#ifdef OUTPUT_DE
-void write_dark_energy_grid(char *fname){
-	int i,npts;
-	float *slabs=my_malloc(nslab_x*PMGRID*PMGRID*sizeof(float));
-
-	for(i=0; i<nslab_x*PMGRID*PMGRID; ++i){
-		slabs[i]=(float) rhogrid_DE[i];
-	}
-
-	npts=nslab_x*PMGRID*PMGRID;
-	if(ThisTask==0){
-		int task;
-		MPI_Status *status;
-		FILE *fd=fopen(fname,"w");
-		unsigned int gridsize=PMGRID;
-		fwrite(&All.Time,1,sizeof(double),fd);
-		fwrite(&All.BoxSize,1,sizeof(double),fd);
-		fwrite(&gridsize,1,sizeof(unsigned int),fd);
-		fwrite(slabs,npts,sizeof(float),fd);
-		for(task=1;task<NTask;++task){
-			npts=slabs_per_task[task]*PMGRID*PMGRID;
-			MPI_Recv(slabs,npts,MPI_FLOAT,task,task,MPI_COMM_WORLD,status);
-			fwrite(slabs,npts,sizeof(float),fd);
-		}
-
-		fclose(fd);
-	}else{
-		MPI_Send(slabs,npts,MPI_FLOAT,0,ThisTask,MPI_COMM_WORLD);
-	}
-	free(slabs);
-}
-#endif
 
 void pm_stats(char* fname){
 	FILE *fd;
@@ -2224,8 +2188,8 @@ void pm_stats(char* fname){
 	master_printf("Current Omega_matter=%.2f, current Omega_lambda=%.2f\n",All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3*(1+All.DarkEnergyW)));
 
 #ifdef DEBUG
-	const fftw_real rho_mean_de=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0*(1+All.DarkEnergyW)); /* Mean dark energy density in the universe */
-	const fftw_real rho_mean_dm=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark energy density in the universe */
+	const fftw_real rho_mean_de=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3*All.DarkEnergyW); /* Mean dark energy density in the universe */
+	const fftw_real rho_mean_dm=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G); /* Mean dark matter density in the universe */
 	master_printf("Background density of dark matter is: %e\n",rho_mean_dm);
 	master_printf("Background density of dark energy is: %e\n",rho_mean_de);
 #endif
@@ -2277,7 +2241,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 	if(slabstart_y==0){
-		printf("Average density fluctuation of dark matter: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
+		printf("Average mass fluctuation of dark matter: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		assert(fabs(delta_mean)<1e-3);
@@ -2300,12 +2264,13 @@ void pm_stats(char* fname){
 	mean/=PMGRID*PMGRID*PMGRID;
 
 	min=max=0;
+	const double mean_de=mean;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
 			{
 				index=INDMAP(i,j,k);
-				delta=rhogrid_tot[index]-mean;
+				delta=rhogrid_tot[index]-mean_de;
 				std_dev+=(double) delta*delta;
 				if(delta<min)
 					min=delta;
@@ -2321,7 +2286,7 @@ void pm_stats(char* fname){
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 
 	if(slabstart_y==0){
-		printf("Average density fluctuation of dark energy: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
+		printf("Average mass fluctuation of dark energy: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
@@ -2330,6 +2295,39 @@ void pm_stats(char* fname){
 	if(slabstart_y==0)
 		fclose(fd);
 }
+
+#ifdef OUTPUT_DE
+void write_dark_energy_grid(char *fname){
+	int i,npts;
+	float *slabs=my_malloc(nslab_x*PMGRID*PMGRID*sizeof(float));
+
+	for(i=0; i<nslab_x*PMGRID*PMGRID; ++i){
+		slabs[i]=(float) rhogrid_DE[i];
+	}
+
+	npts=nslab_x*PMGRID*PMGRID;
+	if(ThisTask==0){
+		int task;
+		MPI_Status *status;
+		FILE *fd=fopen(fname,"w");
+		unsigned int gridsize=PMGRID;
+		fwrite(&All.Time,1,sizeof(double),fd);
+		fwrite(&All.BoxSize,1,sizeof(double),fd);
+		fwrite(&gridsize,1,sizeof(unsigned int),fd);
+		fwrite(slabs,npts,sizeof(float),fd);
+		for(task=1;task<NTask;++task){
+			npts=slabs_per_task[task]*PMGRID*PMGRID;
+			MPI_Recv(slabs,npts,MPI_FLOAT,task,task,MPI_COMM_WORLD,status);
+			fwrite(slabs,npts,sizeof(float),fd);
+		}
+
+		fclose(fd);
+	}else{
+		MPI_Send(slabs,npts,MPI_FLOAT,0,ThisTask,MPI_COMM_WORLD);
+	}
+	free(slabs);
+}
+#endif
 #ifdef DEBUG
 /*
    void dbg_print(int task, fftw_real *expanded_rho_arr){
