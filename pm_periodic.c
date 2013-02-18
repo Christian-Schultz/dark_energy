@@ -1145,8 +1145,8 @@ void pmforce_periodic_DE(void)
 #endif
 #ifdef DEBUG
 	if(slabstart_y==0){
-		printf("Dark energy mean: %e\n", fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
 		printf("Dark matter mean: %e\n", fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID));
+		printf("Dark energy mean: %e\n", fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID));
 	}
 #endif
 
@@ -1515,7 +1515,7 @@ void pmforce_periodic_DE(void)
 			acc_dim += forcegrid[(slab_xx * dimy + slab_y) * dimz + slab_zz] * (dx) * (1.0 - dy) * dz;
 			acc_dim += forcegrid[(slab_xx * dimy + slab_yy) * dimz + slab_zz] * (dx) * dy * dz;
 
-			P[i].GravPM[dim] = acc_dim;
+			P[i].GravPM[dim] = acc_dim; /* Physical (non co-moving) acceleration. Any co-moving integration corrections comes from get_gravkick_factor in driftfac.c*/
 		}
 	}
 	/* Free all but the dark energy arrays */
@@ -2041,19 +2041,18 @@ void pmpotential_periodic(void)
 }
 
 #ifdef DYNAMICAL_DE
+/* TODO: Comoving derivatives */
 void advance_DE(const fftw_real da){
 	const fftw_real fac = 1 / (2 * All.BoxSize / PMGRID);	/* for finite differencing */
-	const fftw_real potfac = All.G / (M_PI * All.BoxSize);	/* to get potential */
+	/* TODO: Is it correct with a^2 in potfac? Co-moving Poisson equation has a a^2 factor */
+	const fftw_real potfac = All.Time*All.Time* All.G / (M_PI * All.BoxSize);	/* to get potential */
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
 	const fftw_real a=All.Time;
 	const fftw_real w=All.DarkEnergyW;
 	const fftw_real cs=All.DarkEnergySoundSpeed;
 	const fftw_real cs_units=cs*C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+w)));
-	const fftw_real rho_mean=All.OmegaLambda*3*All.Hubble*All.Hubble/(8*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
-#ifdef DEBUG
-	master_printf("rho_mean is: %e, cs_units is: %e\n",rho_mean, cs_units);
-#endif
+	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
 
 	/* Indexing variables */
 	int x,y,z;
@@ -2163,7 +2162,7 @@ void advance_DE(const fftw_real da){
 						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])/(a*a*H)
 						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev))
 						-U_prev[dim]*(cs*cs*drhoda_prev-3.0/a*w*(1.0+w)*rho_mean)/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
-						-1.0/(a*a*H)*gradphi[dim];
+						-1.0/(a*a*H)*gradphi[dim]; /* a*a can be removed by adjusting potfac. Kept for clarity */
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
 				}
@@ -2214,6 +2213,7 @@ void write_dark_energy_grid(char *fname){
 	free(slabs);
 }
 #endif
+
 void pm_stats(char* fname){
 	FILE *fd;
 	int i,j,k;
@@ -2222,6 +2222,13 @@ void pm_stats(char* fname){
 	char out[512]="";
 
 	master_printf("Current Omega_matter=%.2f, current Omega_lambda=%.2f\n",All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3*(1+All.DarkEnergyW)));
+
+#ifdef DEBUG
+	const fftw_real rho_mean_de=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0*(1+All.DarkEnergyW)); /* Mean dark energy density in the universe */
+	const fftw_real rho_mean_dm=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark energy density in the universe */
+	master_printf("Background density of dark matter is: %e\n",rho_mean_dm);
+	master_printf("Background density of dark energy is: %e\n",rho_mean_de);
+#endif
 
 	if(slabstart_y==0){
 		if(first_run==1){
@@ -2314,7 +2321,7 @@ void pm_stats(char* fname){
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 
 	if(slabstart_y==0){
-		mpi_printf("Average density fluctuation of dark energy: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
+		printf("Average density fluctuation of dark energy: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);

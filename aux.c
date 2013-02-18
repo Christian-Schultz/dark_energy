@@ -74,8 +74,13 @@ void error_check(void){
 		master_fprintf(stderr,"Error with softening values for particle type 5. Exiting\n");
 		endrun(0);
 	}
-	assert(sizeof(fftw_real)==sizeof(FLOAT));
-	
+#ifdef DYNAMICAL_DE
+	if(All.ComovingIntegrationOn==0)
+		master_fprintf(stderr,"Error: Comoving integration is disabled, but dark energy enabled. This is not currently supported. Terminating\n");
+	endrun(0);
+#endif
+
+
 }
 
 int mpi_printf(const char * format, ...){
