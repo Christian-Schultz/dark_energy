@@ -958,8 +958,12 @@ void pmforce_periodic_DE(void)
 	MPI_Request *comm_reqs=NULL;
 	MPI_Status *status_DE=NULL;
 	if(nslab_x>0){
-		comm_reqs=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Request));
-		status_DE=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Status));
+		comm_reqs=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Request)); /* Received/not received status of non-blocking messages (communication handles) */
+		status_DE=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Status)); /* The MPI_Status return values of the communication */
+
+		/* Redundant (probably) */
+		for( i=0 ; i<fftsize+4*PMGRID2*PMGRID ; ++i )
+			rhogrid_tot_expanded[i]=0;
 
 		/* Copy rhogrid_DE to rhogrid_tot. Note rhogrid_DE is an nslab_x*PMGRID*PMGRID array while rhogrid_tot is in the fftw format nslab_x*PMGRID*PMGRID2 */
 		for( i=0 ; i<nslab_x ; ++i )
@@ -984,7 +988,7 @@ void pmforce_periodic_DE(void)
 		/* Receive slabs. Store in expanded array */
 		for( i=0 ; i<4 ; ++i )
 		{
-			slab=LOGICAL_INDEX(slabs_to_recv[i]-slabstart_x+2);
+			slab=LOGICAL_INDEX(slabs_to_recv[i]-slabstart_x+2); /* Index minus start of local patch + 2 since the received patch starts at relative index -2  */
 			/* Receive ugrid slabs. Tagged with the absolute slab index */
 			MPI_Irecv(ugrid_DE_expanded+slab*PMGRID*PMGRID,3*PMGRID*PMGRID*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i],MPI_COMM_WORLD,&comm_reqs[req_count++]);
 			/* Receive rhogrid_DE slabs. Tagged with absolute slab index + PMGRID so as to not coincide with the ugrid tag */
@@ -1134,12 +1138,17 @@ void pmforce_periodic_DE(void)
 			}
 		}
 	}
-	/* Do the FFT of the density field */
+	/* Print simulation statistics to file */
 	sprintf(statname,"%s%s",All.OutputDir,All.DarkEnergyStatFile);
 	pm_stats(statname);
 
+	/* Do the FFT of the dark matter density field */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 #ifdef DYNAMICAL_DE
+	/* Redundant (probably) */
+	for(i = 0; i < dimx * dimy * dimz; i++)
+		workspace[i] = 0;
+
 	/* Do the FFT of the dark energy density field (the dark energy density field has been converted to mass in rhogrid_tot) */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
 #endif
@@ -1201,7 +1210,6 @@ void pmforce_periodic_DE(void)
 					}
 
 #endif
-					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation in physical coordinates */
 					fft_of_rhogrid[ip].re *= ff*ff;
 					fft_of_rhogrid[ip].im *= ff*ff;
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
@@ -1216,7 +1224,8 @@ void pmforce_periodic_DE(void)
 
 					fft_of_rhogrid_tot[ip].re += fft_of_rhogrid[ip].re;
 					fft_of_rhogrid_tot[ip].im += fft_of_rhogrid[ip].im;
-					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done. */
+					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
+					 * This means that fft_of_rhogrid_tot now contains the full dark matter + dark energy potential */
 
 					/* Copy total density */
 					fft_of_rhogrid[ip].re = fft_of_rhogrid_tot[ip].re;
@@ -1226,7 +1235,9 @@ void pmforce_periodic_DE(void)
 					fft_of_rhogrid_tot[ip].re *= -1.0/k2;
 					fft_of_rhogrid_tot[ip].im *= -1.0/k2;
 #endif
-					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). Multiply with the Green's function and smoothing kernel */
+					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation in physical coordinates */
+					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). 
+					 * Multiply with the Green's function and smoothing kernel */
 					fft_of_rhogrid[ip].re *= ff*ff*smth;
 					fft_of_rhogrid[ip].im *= ff*ff*smth;
 					/* fft_of_rhogrid now contains FFT(rhogrid)*DC*DC+FFT(rhogrid_DE)*DC where DC is the deconvolution kernel (the Green's function and smoothing kernel have also been applied) */
@@ -1401,13 +1412,13 @@ void pmforce_periodic_DE(void)
 	recv_dimz = meshmax[2] - meshmin[2] + 6;
 
 #ifdef DYNAMICAL_DE
-	/* Send/receive rhogrid_tot slabs (which now are the singly deconvolved potential). 
+	/* Send/receive rhogrid_tot slabs needed for the finite difference (which now are the singly deconvolved dm+de potential). 
 	 * Note that rhogrid_tot, unlike rhogrid_DE and ugrid_DE, is in the fftw slab format (y,z dimensions PMGRID, PMGRID2 respectively).
 	 * The following sends more data than what is actually neccesary, however no moving of data is needed.
 	 */
 	if(nslab_x>0){
-		comm_reqs=malloc((nslabs_to_send+4)*sizeof(MPI_Request));
-		status_DE=malloc((nslabs_to_send+4)*sizeof(MPI_Status));
+		comm_reqs=malloc((nslabs_to_send+4)*sizeof(MPI_Request)); /* Received/not received status of non-blocking messages (communication handles) */
+		status_DE=malloc((nslabs_to_send+4)*sizeof(MPI_Status)); /* The MPI_Status return values of the communication */
 
 		/* Send slabs */
 		unsigned short req_count=0;
@@ -1421,7 +1432,7 @@ void pmforce_periodic_DE(void)
 		/* Receive slabs */
 		for( i=0 ; i<4 ; ++i )
 		{
-			slab=LOGICAL_INDEX(slabs_to_recv[i]-slabstart_x+2);
+			slab=LOGICAL_INDEX(slabs_to_recv[i]-slabstart_x+2); /* Index minus start of local patch + 2 since the received patch starts at relative index -2  */
 			/* Receive rhogrid_tot slabs (this is the potential) */
 			MPI_Irecv(rhogrid_tot_expanded+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i],MPI_COMM_WORLD,&comm_reqs[req_count++]);
 		}
@@ -2036,18 +2047,18 @@ void pmpotential_periodic(void)
 }
 
 #ifdef DYNAMICAL_DE
-/* TODO: Comoving derivatives */
+/* TODO: Comoving derivatives. */
 void advance_DE(const fftw_real da){
-	const fftw_real fac = 1 / (2 * All.BoxSize / PMGRID);	/* for finite differencing */
-	/* TODO: Is it correct with a^2 in potfac? Co-moving Poisson equation has a a^2 factor */
-	const fftw_real potfac = All.Time*All.Time* All.G / (M_PI * All.BoxSize);	/* to get potential */
+	const fftw_real fac = 1 / (2 * All.BoxSize / PMGRID);	/* for finite differencing. Factor 1/2 is part of the FD coefficients, could be moved there as well */
+	/* No a^2 in potfac due to comoving coordinates */
+	const fftw_real potfac =All.G / (M_PI * All.BoxSize);	/* to get potential */
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
 	const fftw_real a=All.Time;
 	const fftw_real w=All.DarkEnergyW;
 	const fftw_real cs=All.DarkEnergySoundSpeed;
 	const fftw_real cs_units=cs*C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+w)));
-//	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
+	//	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
 	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3*w); /*Co-moving mean dark energy density in the universe */
 
 	/* Indexing variables */
@@ -2102,41 +2113,42 @@ void advance_DE(const fftw_real da){
 							zll = LOGICAL_INDEX(z - 2);
 							break;
 					}
+					/* Note the different signs on the FDs than standard Gadget2. This is because Gadget2 needs the force, which has a minus */
 					gradrho[dim]=
 						fac*(
 								(4.0/3)*
-								( rhogrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl]
-								  - rhogrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr]
+								( -rhogrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl]
+								  + rhogrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr]
 								)
 								-
 								(1.0 / 6) *
-								( rhogrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll] 
-								  - rhogrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr]
+								( -rhogrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll] 
+								  + rhogrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr]
 								)
 						    );
 					gradphi[dim]=
 						potfac*fac*(
 								(4.0/3)*
-								( rhogrid_tot_expanded[INDMAP(xl,yl,zl)]
-								  - rhogrid_tot_expanded[INDMAP(xr,yr,zr)]
+								( -rhogrid_tot_expanded[INDMAP(xl,yl,zl)]
+								  + rhogrid_tot_expanded[INDMAP(xr,yr,zr)]
 								)
 								-
 								(1.0 / 6) *
-								( rhogrid_tot_expanded[INDMAP(xll,yll,zll)]
-								  - rhogrid_tot_expanded[INDMAP(xrr,yrr,zrr)]
+								( -rhogrid_tot_expanded[INDMAP(xll,yll,zll)]
+								  + rhogrid_tot_expanded[INDMAP(xrr,yrr,zrr)]
 								)
 							   );
 					for( Udim=0; Udim<3 ; ++Udim ) /* Loop over U index (x=0,y=1,z=2)*/
 						gradU[Udim][dim]= /* All 9 components of the gradient of U. */
 							fac*(
 									(4.0/3)*
-									( ugrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl][dim]
-									  - ugrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr][dim]
+									( -ugrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl][dim]
+									  + ugrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr][dim]
 									)
 									-
 									(1.0 / 6) *
-									( ugrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll][dim] 
-									  - ugrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr][dim]
+									( -ugrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll][dim] 
+									  + ugrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr][dim]
 									)
 							    );
 				}
@@ -2412,7 +2424,7 @@ mpi_barrier(mpi_comm_world);
 /*	const double rhocrit=3*All.Hubble*All.Hubble/(8*M_PI*All.G);
 	const double OmegaLambda=All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW);
 	const FLOAT de_mass=OmegaLambda*rhocrit*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
- */
+	*/
 #endif
 #endif
 

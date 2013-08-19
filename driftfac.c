@@ -101,6 +101,7 @@ double get_drift_factor(int time0, int time1)
 
 /*! This function integrates the cosmological prefactor for a kick step of
  *  the gravitational force.
+ *  CHRISTIAN: Returns interpolation of 1/(h*a*a) table for integer timesteps. Takes da into account
  */
 double get_gravkick_factor(int time0, int time1)
 {
