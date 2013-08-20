@@ -2160,7 +2160,7 @@ void advance_DE(const fftw_real da){
 
 				/* TODO: Update the conversion between dP and drho */
 
-				drhoda_current=-3.0/a*(1.0+cs*cs)*rho_prev
+				drhoda_current=-3.0/a*(rho_mean+(1.0+cs*cs)*rho_prev)
 					-(1.0+cs*cs)/(a*a*H)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2])
 					-((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)/(a*a*H)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 
@@ -2168,8 +2168,8 @@ void advance_DE(const fftw_real da){
 				{
 					dUda[dim]=-U_prev[dim]/a
 						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])/(a*a*H)
-						-cs_units*cs_units*gradrho[dim]/(a*a*H*((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev))
-						-U_prev[dim]*(cs*cs*drhoda_prev-3.0/a*w*(1.0+w)*rho_mean)/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
+						-cs_units*cs_units/(a*a*H)*gradrho[dim]/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
+						-U_prev[dim]*(cs*cs*drhoda_prev-3.0*w*w/a*rho_mean)/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
 						-1.0/(a*a*H)*gradphi[dim]; /* a*a can be removed by adjusting potfac. Kept for clarity */
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
@@ -2219,7 +2219,7 @@ void pm_stats(char* fname){
 	double delta=0;
 	double std_dev=0;
 	double delta_mean=0;
-	fftw_real min,max;
+	double min,max;
 	unsigned int index;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
@@ -2276,13 +2276,12 @@ void pm_stats(char* fname){
 	mean/=PMGRID*PMGRID*PMGRID;
 
 	min=max=0;
-	const double mean_de=mean;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
 			{
 				index=INDMAP(i,j,k);
-				delta=rhogrid_tot[index]-mean_de;
+				delta=rhogrid_tot[index]-mean;
 				std_dev+=(double) delta*delta;
 				if(delta<min)
 					min=delta;
