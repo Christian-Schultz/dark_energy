@@ -967,7 +967,7 @@ void pmforce_periodic_DE(void)
 
 		/* Copy rhogrid_DE to rhogrid_tot. Note rhogrid_DE is an nslab_x*PMGRID*PMGRID array while rhogrid_tot is in the fftw format nslab_x*PMGRID*PMGRID2 */
 		for( i=0 ; i<nslab_x ; ++i )
-			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass. */
+			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass. Note: Dark energy grid is in co-moving coordinates*/
 				for( k=0 ; k<PMGRID ; ++k )
 				{
 					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
@@ -2215,12 +2215,12 @@ void pm_stats(char* fname){
 			fd=fopen(fname,"a");
 		}
 	}
+	unsigned int index;
+	/* Dark matter part */
 	double mean=0;
 	double delta=0;
 	double std_dev=0;
 	double delta_mean=0;
-	double min,max;
-	unsigned int index;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
@@ -2232,7 +2232,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	mean/=PMGRID*PMGRID*PMGRID;
 
-	min=max=0;
+	double min=max=0;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
@@ -2252,6 +2252,9 @@ void pm_stats(char* fname){
 	std_dev=sqrt(std_dev);
 	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
+
+	MPI_Allreduce(MPI_IN_PLACE,&min,1,MPI_DOUBLE,MPI_Min,MPI_COMM_WORLD);
+	MPI_Allreduce(MPI_IN_PLACE,&max,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
 	if(slabstart_y==0){
 		printf("Average mass fluctuation of dark matter: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
@@ -2296,6 +2299,8 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean/=PMGRID*PMGRID*PMGRID;
 
+	MPI_Allreduce(MPI_IN_PLACE,&min,1,MPI_DOUBLE,MPI_Min,MPI_COMM_WORLD);
+	MPI_Allreduce(MPI_IN_PLACE,&max,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
 	if(slabstart_y==0){
 		printf("Average mass fluctuation of dark energy: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
