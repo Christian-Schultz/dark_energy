@@ -284,6 +284,9 @@ void pm_init_periodic(void)
 #ifdef DYNAMICAL_DE
 void DE_periodic_allocate(void){
 	/* Expand with 4 slabs to store communication data */
+#ifdef DEBUG
+	assert(fftsize==nslab_x*PMGRID2*PMGRID);
+#endif
 	rhogrid_tot_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
 
 	/* rhogrid_tot is only the local array, rhogrid_tot_expanded is the local array and the 2 slabs before and 2 after */
@@ -293,9 +296,7 @@ void DE_periodic_allocate(void){
 	static int first_alloc = 1;
 	if(first_alloc==1){
 		master_printf("PM force with dark energy toggled (time=%f). Allocated %u bytes (%u MB) for dark energy potential array\n",All.Time,(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real),(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real)/(1024*1024));
-#ifdef DEBUG
 		master_printf("Dark energy sound speed: %f, dark energy equation of state: %f\n",All.DarkEnergySoundSpeed,All.DarkEnergyW);
-#endif
 		first_alloc=0;
 	}
 }
@@ -966,11 +967,14 @@ void pmforce_periodic_DE(void)
 			rhogrid_tot_expanded[i]=0;
 
 		/* Copy rhogrid_DE to rhogrid_tot. Note rhogrid_DE is an nslab_x*PMGRID*PMGRID array while rhogrid_tot is in the fftw format nslab_x*PMGRID*PMGRID2 */
+//		const fftw_real rho_crit=3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G);
+//		const fftw_real rho_mean_de=All.OmegaLambda*rho_crit/pow(All.Time,3*All.DarkEnergyW); /* Mean co-moving dark energy density in the universe */
+//		const fftw_real rho_de_background=rho_mean_de*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 		for( i=0 ; i<nslab_x ; ++i )
-			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass. Note: Dark energy grid is in co-moving coordinates*/
+			for( j=0 ; j<PMGRID ; j++ )/* Change from delta_rho to delta_mass.*/
 				for( k=0 ; k<PMGRID ; ++k )
 				{
-					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
+					rhogrid_tot[INDMAP(i,j,k)]=rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID)*All.Time*All.Time*All.Time;
 				}
 
 
@@ -1202,14 +1206,7 @@ void pmforce_periodic_DE(void)
 					ff = 1 / (fx * fy * fz);
 
 					ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-#ifdef DEBUG
-					if(slabstart_y==0 && ip==0){
-						printf("*********ip=0\n");
-						SHOUT(ip==0);
 
-					}
-
-#endif
 					fft_of_rhogrid[ip].re *= ff*ff;
 					fft_of_rhogrid[ip].im *= ff*ff;
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
@@ -1521,7 +1518,7 @@ void pmforce_periodic_DE(void)
 			acc_dim += forcegrid[(slab_xx * dimy + slab_y) * dimz + slab_zz] * (dx) * (1.0 - dy) * dz;
 			acc_dim += forcegrid[(slab_xx * dimy + slab_yy) * dimz + slab_zz] * (dx) * dy * dz;
 
-			P[i].GravPM[dim] = acc_dim; /* Physical (non co-moving) acceleration. Any co-moving integration corrections comes from get_gravkick_factor in driftfac.c*/
+			P[i].GravPM[dim] = acc_dim;
 		}
 	}
 	/* Free all but the dark energy arrays */
@@ -2051,15 +2048,14 @@ void pmpotential_periodic(void)
 void advance_DE(const fftw_real da){
 	const fftw_real fac = 1 / (2 * All.BoxSize / PMGRID);	/* for finite differencing. Factor 1/2 is part of the FD coefficients, could be moved there as well */
 	/* No a^2 in potfac due to comoving coordinates */
-	const fftw_real potfac =All.G / (M_PI * All.BoxSize);	/* to get potential */
+	const fftw_real potfac =All.Time*All.Time*All.G / (M_PI * All.BoxSize);	/* to get potential */
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
 	const fftw_real a=All.Time;
 	const fftw_real w=All.DarkEnergyW;
 	const fftw_real cs=All.DarkEnergySoundSpeed;
 	const fftw_real cs_units=cs*C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+w)));
-	//	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3.0*(1+w)); /* Mean dark energy density in the universe */
-	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3*w); /*Co-moving mean dark energy density in the universe */
+	const fftw_real rho_mean=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(a,3*(w+1)); /* Mean dark energy density in the universe */
 
 	/* Indexing variables */
 	int x,y,z;
@@ -2160,7 +2156,7 @@ void advance_DE(const fftw_real da){
 
 				/* TODO: Update the conversion between dP and drho */
 
-				drhoda_current=-3.0/a*(rho_mean+(1.0+cs*cs)*rho_prev)
+				drhoda_current=-3.0/a*((1.0+cs*cs)*rho_prev)
 					-(1.0+cs*cs)/(a*a*H)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2])
 					-((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)/(a*a*H)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 
@@ -2169,7 +2165,7 @@ void advance_DE(const fftw_real da){
 					dUda[dim]=-U_prev[dim]/a
 						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])/(a*a*H)
 						-cs_units*cs_units/(a*a*H)*gradrho[dim]/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
-						-U_prev[dim]*(cs*cs*drhoda_prev-3.0*w*w/a*rho_mean)/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
+						-U_prev[dim]*(cs*cs*drhoda_current-3.0*w*(w+1)/a*rho_mean)/((1.0+w)*rho_mean+(1.0+cs*cs)*rho_prev)
 						-1.0/(a*a*H)*gradphi[dim]; /* a*a can be removed by adjusting potfac. Kept for clarity */
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
@@ -2197,20 +2193,23 @@ void pm_stats(char* fname){
 	char buf[128]="";
 	char out[512]="";
 
-	master_printf("Current Omega_matter=%.2f, current Omega_lambda=%.2f\n",All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3*(1+All.DarkEnergyW)));
+	master_printf("Current physical Omega_matter=%.2f, Omega_lambda=%.2f\nCurrent co-moving Omega_matter=%.2f, Omega_lambda=%.2f\n",
+			All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3*(1+All.DarkEnergyW)),
+			All.Omega0,All.OmegaLambda/pow(All.Time,3*All.DarkEnergyW));
 
 #ifdef DEBUG
-	const fftw_real rho_mean_de=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3*All.DarkEnergyW); /* Mean dark energy density in the universe */
-	const fftw_real rho_mean_dm=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G); /* Mean dark matter density in the universe */
-	master_printf("Background density of dark matter is: %e\n",rho_mean_dm);
-	master_printf("Background density of dark energy is: %e\n",rho_mean_de);
+	const fftw_real rho_crit=3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G);
+	const fftw_real rho_mean_de=All.OmegaLambda*rho_crit/pow(All.Time,3*All.DarkEnergyW); /* Mean co-moving dark energy density in the universe */
+	const fftw_real rho_mean_dm=All.Omega0*rho_crit; /* Mean dark matter density in the universe */
+	master_printf("Background mass of dark matter in mesh cell is: %e\n",rho_mean_dm*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID));
+	master_printf("Background mass of dark energy in mesh cell is: %e\n",rho_mean_de*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID));
 #endif
 
 	if(slabstart_y==0){
 		if(first_run==1){
 			fd=fopen(fname,"w");
 			first_run=0;
-			fprintf(fd,"Time        \tmean_dm     \tdelta_dm    \tstd_dev_dm  \tmin_dm      \tmax_dm      \tmean_de     \tdelta_de    \tstd_dev_de  \tmin_de      \tmax_de      \n");
+			fprintf(fd,"Time        \tmean_dm     \tdelta_dm_av    \tstd_dev_dm  \tmin_dm      \tmax_dm      \tmean_de     \tdelta_de_av    \tstd_dev_de  \tmin_de      \tmax_de      \n");
 		}else{
 			fd=fopen(fname,"a");
 		}
@@ -2219,8 +2218,8 @@ void pm_stats(char* fname){
 	/* Dark matter part */
 	double mean=0;
 	double delta=0;
-	double std_dev=0;
 	double delta_mean=0;
+	double std_dev=0;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
@@ -2232,81 +2231,72 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	mean/=PMGRID*PMGRID*PMGRID;
 
-	double min=max=0;
+	double min=0;
+	double max=0;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
 			{
 				index=INDMAP(i,j,k);
-				delta=rhogrid[index]-mean;
-				std_dev+=(double) delta*delta;
+				delta=(double) rhogrid[index]-mean;
+				delta_mean+=delta;
+				std_dev+=delta*delta;
 				if(delta<min)
 					min=delta;
 				else if(delta>max)
 					max=delta;
-				delta_mean+=delta;
 			}
 
+	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	delta_mean/=PMGRID*PMGRID*PMGRID;
 	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	std_dev/=PMGRID*PMGRID*PMGRID;
 	std_dev=sqrt(std_dev);
-	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-	delta_mean/=PMGRID*PMGRID*PMGRID;
-
-	MPI_Allreduce(MPI_IN_PLACE,&min,1,MPI_DOUBLE,MPI_Min,MPI_COMM_WORLD);
+	MPI_Allreduce(MPI_IN_PLACE,&min,1,MPI_DOUBLE,MPI_MIN,MPI_COMM_WORLD);
 	MPI_Allreduce(MPI_IN_PLACE,&max,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
+	
 	if(slabstart_y==0){
-		printf("Average mass fluctuation of dark matter: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
+		printf("Comoving background mass of dark matter in mesh cell: %e (delta_mean: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
-		assert(fabs(delta_mean)<1e-3);
+//		assert(fabs(delta)<1e-3);
 	}
 
 	/* Dark energy part */
-	mean=0;
+	mean=rho_mean_de*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 	delta=0;
-	std_dev=0;
 	delta_mean=0;
+	std_dev=0;
+	min=0;
+	max=0;
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
 			{
 				index=INDMAP(i,j,k);
-				mean+=(double) rhogrid_tot[index];
-			}
-
-	MPI_Allreduce(MPI_IN_PLACE,&mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-	mean/=PMGRID*PMGRID*PMGRID;
-
-	min=max=0;
-	for( i=0 ; i<nslab_x ; ++i )
-		for( j=0 ; j<PMGRID ; ++j )
-			for( k=0 ; k<PMGRID ; ++k )
-			{
-				index=INDMAP(i,j,k);
-				delta=rhogrid_tot[index]-mean;
-				std_dev+=(double) delta*delta;
+				delta=(double) rhogrid_tot[index];
+				delta_mean+=delta;
+				std_dev+=delta*delta;
 				if(delta<min)
 					min=delta;
 				else if(delta>max)
 					max=delta;
-				delta_mean+=delta;
 			}
 
+	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
+	delta_mean/=PMGRID*PMGRID*PMGRID;
 	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
 	std_dev/=PMGRID*PMGRID*PMGRID;
 	std_dev=sqrt(std_dev);
-	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
-	delta_mean/=PMGRID*PMGRID*PMGRID;
-
-	MPI_Allreduce(MPI_IN_PLACE,&min,1,MPI_DOUBLE,MPI_Min,MPI_COMM_WORLD);
+	MPI_Allreduce(MPI_IN_PLACE,&min,1,MPI_DOUBLE,MPI_MIN,MPI_COMM_WORLD);
 	MPI_Allreduce(MPI_IN_PLACE,&max,1,MPI_DOUBLE,MPI_MAX,MPI_COMM_WORLD);
+
 	if(slabstart_y==0){
-		printf("Average mass fluctuation of dark energy: %e (delta: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
+		printf("Comoving background mass of dark energy in mesh cell: %e (delta_mean: %e, std dev: %e, min: %e, max: %e)\n",mean,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
-		assert(fabs(delta_mean)<1e-3);
+//		assert(fabs(delta_mean)<1e-3);
 	}
 	if(slabstart_y==0)
 		fclose(fd);
