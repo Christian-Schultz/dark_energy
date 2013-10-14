@@ -110,13 +110,7 @@ void savepositions(int num)
 	write_file(buf, masterTask, lastTask);
       MPI_Barrier(MPI_COMM_WORLD);
     }
-#ifdef OUTPUT_DE
-  /* See pm_periodic.c for function*/
-  if(All.Time>=All.DarkEnergyBegin){
-	  sprintf(buf, "%s%s_%03d", All.OutputDir, All.DarkEnergyFileBase, num);
-	  write_dark_energy_grid(buf);
-  }
-#endif
+
   if(ThisTask == 0)
 	  printf("done with snapshot.\n");
 

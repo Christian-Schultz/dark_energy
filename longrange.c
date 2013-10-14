@@ -74,9 +74,11 @@ void long_range_force(void)
 #ifdef PERIODIC
 #ifdef DYNAMICAL_DE
 #ifdef DEBUG
-  double T_temp=MPI_Wtime();
   static double T_static=0;
-  master_printf("Walltime for previous timestep: %.3f\n",T_temp-T_static);
+  double T_temp=MPI_Wtime();
+  if(T_static!=0){
+	  master_printf("Walltime for previous timestep: %.3f\n",T_temp-T_static);
+  }
   T_static=T_temp;
 #endif
   if(All.Time>=All.DarkEnergyBegin && All.Time!=All.TimeBegin) /* Can't run dark energy pm part for the first timestep since the time constraints needs to be calculated first */

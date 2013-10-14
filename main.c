@@ -63,7 +63,9 @@ int main(int argc, char **argv)
   t0 = second();
 
   begrun();			/* set-up run  */
+#ifdef OVERWRITE_ICS
 
+#endif
   t1 = second();
   CPUThisRun += timediff(t0, t1);
   All.CPU_Total += timediff(t0, t1);
