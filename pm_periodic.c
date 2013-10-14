@@ -2351,7 +2351,7 @@ void advance_DE(const fftw_real da){
 
 				/* TODO: Update the conversion between dP and drho */
 				drhoda_current=
-					-3.0*a*H*(rho_plus_P)
+					-3.0*a*H*rho_plus_P
 					-(1.0+cs*cs)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2])
 					-(rho_plus_P)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 				drhoda_current=drhoda_current/(a*a*H);
@@ -2374,7 +2374,7 @@ void advance_DE(const fftw_real da){
 				new_rhogrid_DE[index]=rhogrid_DE[index]+drhoda_current*da;
 #ifdef DEBUG
 				if(new_rhogrid_DE[index]<0){
-					dom_rho_term=fabs(3.0/a*rho_plus_P);
+					dom_rho_term=fabs(3.0*a*H*rho_plus_P);
 					sprintf(dom_term,"rho plus P");
 					dom_rho_term_temp=fabs((1.0+cs*cs)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2]));
 					if (dom_rho_term_temp>dom_rho_term){
@@ -2387,7 +2387,7 @@ void advance_DE(const fftw_real da){
 						sprintf(dom_term,"divergence U");
 					}
 
-					mpi_printf("*Catastrophic point (%i, %i, %i) stats: drho: %e, U dot nabla drho: %e dot U: %e\n"
+					mpi_printf("*Catastrophic point (%i, %i, %i) stats: rho: %e, U dot nabla rho: %e dot U: %e\n"
 							"*U=(%e, %e, %e)\n"
 							"*Dominant term: %s\n",
 							x-2+slabstart_x,y,z,rho_prev,U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2],gradU[0][0]+gradU[1][1]+gradU[2][2],ugrid_DE[index][0],ugrid_DE[index][1],ugrid_DE[index][2],dom_term);
@@ -2499,12 +2499,12 @@ void pm_stats(char* fname){
 	double print_dummy;
 	if(slabstart_y==0){
 		print_dummy=mean_DM*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
-		printf("Comoving background mass of dark matter in mesh cell is: %e\n",print_dummy);
+		printf("Background mass of dark matter in comoving mesh cell is: %e\n",print_dummy);
 		print_dummy*=All.Time*All.Time*All.Time;
-		printf("Physical background mass of dark matter in mesh cell: %e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n",mean*All.Time*All.Time*All.Time,print_dummy,delta_mean,std_dev,min,max);
+		printf("Background mass of dark matter in physical mesh cell: %e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n",
+				mean,print_dummy,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
-		//		assert(fabs(delta)<1e-3);
 	}
 
 	/* Dark energy part */
@@ -2527,11 +2527,12 @@ void pm_stats(char* fname){
 			for( k=0 ; k<PMGRID ; ++k )
 			{
 				index=i*PMGRID*PMGRID+j*PMGRID+k;
-				mean+= rhogrid_DE[index]*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID)*All.Time*All.Time*All.Time;
+				mean+= rhogrid_DE[index];
 			}
 
 	MPI_Allreduce(MPI_IN_PLACE,&mean,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
-	mean=mean/(PMGRID*PMGRID*PMGRID);
+	mean=mean/(PMGRID*PMGRID*PMGRID)
+	mean*=All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID)*All.Time*All.Time*All.Time;
 
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
@@ -2580,13 +2581,13 @@ void pm_stats(char* fname){
 
 	if(slabstart_y==0){
 		print_dummy=mean_DE*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
-		printf("Comoving background mass of dark energy in mesh cell is: %e\n",print_dummy);
+		printf("Background mass of dark energy in comoving mesh cell is: %e\n",print_dummy);
 		print_dummy*=All.Time*All.Time*All.Time;
-		printf("Physical background mass of dark energy in mesh cell: %e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n",mean,print_dummy,delta_mean,std_dev,min,max);
+		printf("Background mass of dark energy in physical mesh cell: %e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n",
+				mean,print_dummy,delta_mean,std_dev,min,max);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
-		//assert(fabs(delta_mean)<1e-3);
 	}
 	if(slabstart_y==0)
 		fclose(fd);
