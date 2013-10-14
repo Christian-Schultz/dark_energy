@@ -932,7 +932,7 @@ void pmforce_periodic_DE(void)
 		fflush(stdout);
 	}
 
-#ifdef DYNMICAL_DE
+#ifdef DYNAMICAL_DE
 	mean_DM=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark matter density in the universe */
 	mean_DE=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0*(1+All.DarkEnergyW)); /* Mean dark energy density in the universe */
 #endif
