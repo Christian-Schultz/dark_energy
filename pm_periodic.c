@@ -2531,7 +2531,7 @@ void pm_stats(char* fname){
 			}
 
 	MPI_Allreduce(MPI_IN_PLACE,&mean,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
-	mean=mean/(PMGRID*PMGRID*PMGRID)
+	mean=mean/(PMGRID*PMGRID*PMGRID);
 	mean*=All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID)*All.Time*All.Time*All.Time;
 
 	for( i=0 ; i<nslab_x ; ++i )
