@@ -1492,10 +1492,10 @@ void pmforce_periodic_DE(void)
 
 #ifdef DEBUG
 
-	slab_x = to_slab_fac * P[part_index].Pos[0];
-	slab_y = to_slab_fac * P[part_index].Pos[1];
-	slab_z = to_slab_fac * P[part_index].Pos[2];
-	mpi_printf("Max acceleration (%e) for (i,j,k)=(%i,%i,%i) cube\n",max_acc,slab_x,slab_y,slab_z);
+	//slab_x = to_slab_fac * P[part_index].Pos[0];
+	//slab_y = to_slab_fac * P[part_index].Pos[1];
+	//slab_z = to_slab_fac * P[part_index].Pos[2];
+	//mpi_printf("Max acceleration (%e) for (i,j,k)=(%i,%i,%i) cube\n",max_acc,slab_x,slab_y,slab_z);
 #endif
 	/* Free all but the dark energy arrays */
 	pm_init_periodic_free();
@@ -2258,9 +2258,14 @@ void advance_DE(const fftw_real da){
 	fftw_real (*new_ugrid_DE)[3]=new_ugrid_DE_expanded+2*PMGRID*PMGRID;
 
 #ifdef DEBUG
-	fftw_real dom_rho_term=0;
-	fftw_real dom_rho_term_temp=0;
-	char dom_term[64];
+	fftw_real dom_term=0;
+	fftw_real rho_term_val[3];
+	fftw_real U_term_val[3][5];
+	short int term;
+	char rho_str[64];
+	char U_str[3][64];
+	char buf[256];
+	char err_str[256]="";
 	if(first_DE_run){
 		master_printf("cs_units=%e, C in G-units=%e\n",cs_units,C/All.UnitVelocity_in_cm_per_s);
 	}
@@ -2268,21 +2273,20 @@ void advance_DE(const fftw_real da){
 
 #ifdef DEBUG
 	fftw_real U_sq=0;
+	fftw_real UgradU[3];
+	int i;
 #endif
 	/* Finite differences
 	 * The following loops could probably be optimised by changing the data structure to allow cache optimisations */
 	for( x=2 ; x<nslab_x+2 ; ++x ) /* Loop over slabs */
 		for( y=0 ; y<PMGRID ; ++y )
 			for( z=0 ; z<PMGRID ; ++z ){
-#ifdef DEBUG
-				U_sq=0;
-#endif
 				for( dim=0 ; dim<3 ; ++dim ) /* Loop over x,y,z components of the gradients */
 				{
 					xrr = xll = xr = xl = x;
 					yrr = yll = yr = yl = y;
 					zrr = zll = zr = zl = z;
-
+					
 					switch (dim)
 					{
 						case 0:
@@ -2307,43 +2311,56 @@ void advance_DE(const fftw_real da){
 					/* Note the different signs on the FDs than standard Gadget2. This is because Gadget2 needs the force, which has a minus */
 					gradrho[dim]=
 						fac*(
-								(4.0/3)*
+								(4.0/3.0)*
 								( - rhogrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl]
 								  + rhogrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr]
 								)
 								+
-								(1.0 / 6) *
+								(1.0 / 6.0) *
 								( rhogrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll] 
 								  - rhogrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr]
 								)
 						    );
 					gradphi[dim]=
 						potfac*fac*(
-								(4.0/3)*
+								(4.0/3.0)*
 								( - rhogrid_tot_expanded[INDMAP(xl,yl,zl)]
 								  + rhogrid_tot_expanded[INDMAP(xr,yr,zr)]
 								)
 								+
-								(1.0 / 6) *
+								(1.0 / 6.0) *
 								( rhogrid_tot_expanded[INDMAP(xll,yll,zll)]
 								  - rhogrid_tot_expanded[INDMAP(xrr,yrr,zrr)]
 								)
 							   );
-					for( Udim=0; Udim<3 ; ++Udim ) /* Loop over U index (x=0,y=1,z=2)*/
+					/* In the following Udim is the U index, dim is the derivative index. 
+					 * This means that gradU[0][1] is the y derivative of Ux for example*/
+					for( Udim=0; Udim<3 ; ++Udim ) 
+					{
 						gradU[Udim][dim]= /* All 9 components of the gradient of U. */
 							fac*(
-									(4.0/3)*
-									( - ugrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl][dim]
-									  + ugrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr][dim]
+									(4.0/3.0)*
+									( - ugrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl][Udim]
+									  + ugrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr][Udim]
 									)
 									+
-									(1.0 / 6) *
-									( ugrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll][dim] 
-									  - ugrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr][dim]
+									(1.0 / 6.0) *
+									( ugrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll][Udim] 
+									  - ugrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr][Udim]
 									)
 							    );
+					}
 				}
+
 				index=(x-2)*PMGRID*PMGRID+y*PMGRID+z;
+				if(index==0 && ThisTask==0){
+					for( dim=0 ; dim<3 ; ++dim )
+					{
+							sprintf(buf,"%e, %e, %e\n",gradU[dim][0],gradU[dim][1],gradU[dim][2]);
+							strcat(err_str,buf);
+					}
+					printf("%s",err_str);
+				}
 				for( dim=0 ;dim<3  ; ++dim )
 					U_prev[dim]=ugrid_DE[index][dim];
 				rho_prev=rhogrid_DE[index];
@@ -2356,11 +2373,14 @@ void advance_DE(const fftw_real da){
 					-(rho_plus_P)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 				drhoda_current=drhoda_current/(a*a*H);
 
+#ifdef DEBUG
+				U_sq=0;
+#endif
 				for( dim=0 ;dim<3  ; ++dim )
 				{
 					dUda[dim]=
 						-a*H*U_prev[dim]
-						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2])
+						-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2]) /* U dot grad U[dim] */
 						-cs_units*cs_units/rho_plus_P*gradrho[dim]
 						-a*a*H/rho_plus_P*U_prev[dim]*dPda(drhoda_current)
 						-gradphi[dim]; 
@@ -2368,33 +2388,107 @@ void advance_DE(const fftw_real da){
 
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
 #ifdef DEBUG
+					UgradU[dim]=-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2]);
 					U_sq+=new_ugrid_DE[index][dim]*new_ugrid_DE[index][dim];
 #endif
 				}
 				new_rhogrid_DE[index]=rhogrid_DE[index]+drhoda_current*da;
 #ifdef DEBUG
 				if(new_rhogrid_DE[index]<0){
-					dom_rho_term=fabs(3.0*a*H*rho_plus_P);
-					sprintf(dom_term,"rho plus P");
-					dom_rho_term_temp=fabs((1.0+cs*cs)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2]));
-					if (dom_rho_term_temp>dom_rho_term){
-						dom_rho_term=dom_rho_term_temp;
-						sprintf(dom_term,"gradient rho plus P");
-					}
-					dom_rho_term_temp=fabs((rho_plus_P)*(gradU[0][0]+gradU[1][1]+gradU[2][2]));
-					if (dom_rho_term_temp>dom_rho_term){
-						dom_rho_term=dom_rho_term_temp;
-						sprintf(dom_term,"divergence U");
-					}
+					rho_term_val[0]=-3.0*a*H*rho_plus_P;
+					rho_term_val[1]=-(1.0+cs*cs)*(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2]);
+					rho_term_val[2]=-(rho_plus_P)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 
-					mpi_printf("*Catastrophic point (%i, %i, %i) stats: rho: %e, U dot nabla rho: %e dot U: %e\n"
-							"*U=(%e, %e, %e)\n"
-							"*Dominant term: %s\n",
-							x-2+slabstart_x,y,z,rho_prev,U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2],gradU[0][0]+gradU[1][1]+gradU[2][2],ugrid_DE[index][0],ugrid_DE[index][1],ugrid_DE[index][2],dom_term);
+					dom_term=fabs(rho_term_val[0]);
+					term=0;
+					for( i=1  ; i<3 ; ++i )
+					{
+						if( fabs(rho_term_val[i]) > dom_term){
+							dom_term=fabs(rho_term_val[i]);
+							term=i;
+						}
+					}
+					switch (term)
+					{
+						case 0:
+							sprintf(rho_str,"rho plus P");
+							break;
+						case 1:
+							sprintf(rho_str,"gradient rho plus P");
+							break;
+						case 2:
+							sprintf(rho_str,"divergence U");
+							break;
+					}
+					for( dim=0 ; dim<3 ; ++dim )
+					{
 
+
+
+						U_term_val[dim][0]=-a*H*U_prev[dim];
+						U_term_val[dim][1]=-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2]);
+						U_term_val[dim][2]=-cs_units*cs_units/rho_plus_P*gradrho[dim];
+						U_term_val[dim][3]=-a*a*H/rho_plus_P*U_prev[dim]*dPda(drhoda_current);
+						U_term_val[dim][4]=-gradphi[dim]; 
+
+						dom_term=fabs(U_term_val[dim][0]);
+						term=0;
+						for( i=1  ; i<5 ; ++i )
+						{
+							if( fabs(U_term_val[dim][i]) > dom_term){
+								dom_term=fabs(U_term_val[dim][i]);
+								term=i;
+							}
+						}
+						switch (term)
+						{
+							case 0:
+								sprintf(U_str[dim],"U");
+								break;
+							case 1:
+								sprintf(U_str[dim],"U grad U");
+								break;
+							case 2:
+								sprintf(U_str[dim],"grad rho");
+								break;
+							case 3:
+								sprintf(U_str[dim],"dPda");
+								break;
+							case 4:
+								sprintf(U_str[dim],"grad phi");
+								break;
+						}
+					}
+					printf("**Catastrophic point (%i, %i, %i) stats:\n" 
+							"**rho: %e, U dot nabla rho: %e dot U: %e\n"
+							"**U=(%e, %e, %e), |U|=%e\n"
+							"**Dominant rho term: %s\n"
+							"**rho terms: %e, %e, %e. Sum: %e\n"
+							"**Dominant Ux term: %s\n"
+							"**Ux terms: %e, %e, %e, %e, %e\n"
+							"**Dominant Uy term: %s\n"
+							"**Uy terms: %e, %e, %e, %e, %e\n"
+							"**Dominant Uz term: %s\n"
+							"**Uz terms: %e, %e, %e, %e, %e\n",
+							x-2+slabstart_x,y,z,
+							rho_prev,U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2],gradU[0][0]+gradU[1][1]+gradU[2][2],
+							ugrid_DE[index][0],ugrid_DE[index][1],ugrid_DE[index][2],sqrt(U_sq),
+							rho_str,
+							rho_term_val[0],rho_term_val[1],rho_term_val[2], drhoda_current,
+							/* Ux */
+							U_str[0],
+							U_term_val[0][0],U_term_val[0][1],U_term_val[0][2],U_term_val[0][3],U_term_val[0][4],
+							/* Uy */
+							U_str[1],
+							U_term_val[1][0],U_term_val[1][1],U_term_val[1][2],U_term_val[1][3],U_term_val[1][4],
+							/* Uz */
+							U_str[2],
+							U_term_val[2][0],U_term_val[2][1],U_term_val[2][2],U_term_val[2][3],U_term_val[2][4]
+								);
 					new_rhogrid_DE[index]=0;
 					drhoda_current=-rhogrid_DE[index]/da;
 
+					U_sq=0;
 					for( dim=0 ;dim<3  ; ++dim )
 					{
 						dUda[dim]=
@@ -2406,6 +2500,7 @@ void advance_DE(const fftw_real da){
 						dUda[dim]=dUda[dim]/(a*a*H);
 
 						new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
+						U_sq+=new_ugrid_DE[index][dim]*new_ugrid_DE[index][dim];
 					}
 				}
 				U_sq=sqrt(U_sq);
@@ -2432,7 +2527,7 @@ fftw_real Pressure(fftw_real rho){
 }
 
 fftw_real dPda(fftw_real drhoda){
-	return All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*drhoda-3*All.DarkEnergyW*(1+All.DarkEnergyW)/All.Time*mean_DE;
+	return All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*drhoda-3*(All.DarkEnergyW+1)*(All.DarkEnergyW+All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed)*mean_DE/All.Time;
 }
 
 void pm_stats(char* fname){
@@ -2501,16 +2596,15 @@ void pm_stats(char* fname){
 		print_dummy=mean_DM*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 		printf("Background mass of dark matter in comoving mesh cell is: %e\n",print_dummy);
 		print_dummy*=All.Time*All.Time*All.Time;
-		printf("Background mass of dark matter in physical mesh cell: %e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n",
-				mean,print_dummy,delta_mean,std_dev,min,max);
+		printf("Background mass of dark matter in physical mesh cell: " 
+				"%e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n"
+				"Ratio of mean to cosmo term: %e\n",
+				mean,print_dummy,delta_mean,std_dev,min,max,mean/print_dummy);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 	}
 
 	/* Dark energy part */
-
-
-
 	mean=0;
 	delta=0;
 	delta_mean=0;
@@ -2583,8 +2677,10 @@ void pm_stats(char* fname){
 		print_dummy=mean_DE*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 		printf("Background mass of dark energy in comoving mesh cell is: %e\n",print_dummy);
 		print_dummy*=All.Time*All.Time*All.Time;
-		printf("Background mass of dark energy in physical mesh cell: %e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n",
-				mean,print_dummy,delta_mean,std_dev,min,max);
+		printf("Background mass of dark energy in physical mesh cell: "
+				"%e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n"
+				"Ratio of mean to cosmo term: %e\n",
+				mean,print_dummy,delta_mean,std_dev,min,max,mean/print_dummy);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
@@ -2642,17 +2738,14 @@ void write_de_debug(char* fname_DE){
 void write_U_debug(char* fname_U){
 	if(nslab_x>0){
 		int i,j,npts;
-		npts=nslab_x*PMGRID*PMGRID;
-		float *slabs=my_malloc(npts*sizeof(float));
-		float U_sq=0;
+		npts=3*nslab_x*PMGRID*PMGRID;
+		float (*slabs)[3]=my_malloc(npts*sizeof(float));
 
 		for(i=0; i<nslab_x*PMGRID*PMGRID; ++i){
-			U_sq=0;
 			for( j=0 ; j<3 ; ++j )
 			{
-				U_sq+=ugrid_DE[i][j]*ugrid_DE[i][j];
+				slabs[i][j]=(float) ugrid_DE[i][j];
 			}
-			slabs[i]=sqrt(U_sq);
 		}
 
 		FILE *fd=fopen(fname_U,"w");
