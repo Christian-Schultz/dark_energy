@@ -1199,7 +1199,7 @@ void pmforce_periodic_DE(void)
 			}
 
 #ifdef DYNAMICAL_DE
-	/* Subtract dark matter mean from the density (dark energy is already delta rho) */
+	/* Subtract mean */
 	if(slabstart_y == 0){ 
 		fft_of_rhogrid_tot[0].re =0.0;
 		fft_of_rhogrid_tot[0].im =0.0;
@@ -2172,48 +2172,6 @@ void CIC(int *meshmin,int *meshmax){
 #ifdef DYNAMICAL_DE
 void DE_IC(void){
 	int i,j;
-	/* 
-	   int k,dim;
-	   unsigned int index;
-	   fftw_real mean_dm=0;
-	   fftw_real DE_supp=pow(All.Time,-3*All.DarkEnergyW)*All.OmegaLambda/All.Omega0;
-	   master_printf("Creating initial conditions for the dark energy grid. Dark energy suppression: %e\n",DE_supp);
-	   for( i=0 ; i<nslab_x ; ++i )
-	   for( j=0 ; j<PMGRID ; ++j )
-	   for( k=0 ; k<PMGRID ; ++k )
-	   {
-	   index=INDMAP(i,j,k);
-	   mean_dm+=rhogrid[index];
-	   }
-	   MPI_Allreduce(MPI_IN_PLACE,&mean_dm,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
-	   mean_dm=mean_dm/(PMGRID*PMGRID*PMGRID);
-
-	   fftw_real mean=0;
-	   for( i=0 ; i<nslab_x ; ++i )
-	   for( j=0 ; j<PMGRID ; ++j )
-	   for( k=0 ; k<PMGRID ; ++k )
-	   {
-	   index=INDMAP(i,j,k);
-	   rhogrid_DE[i*PMGRID*PMGRID+j*PMGRID+k]=(rhogrid[index])*DE_supp;
-	   mean+=rhogrid_DE[i];
-	   for( dim=0 ; dim<3 ; ++dim )
-	   {
-	   ugrid_DE[i][dim]=0;
-	   }
-	   }
-
-	   MPI_Allreduce(MPI_IN_PLACE,&mean,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
-	   mean=mean/(PMGRID*PMGRID*PMGRID);
-
-	   const fftw_real rho_crit=3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G);
-	   const fftw_real rho_mean_de=All.OmegaLambda*rho_crit/pow(All.Time,3*(1+All.DarkEnergyW));
-	   for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
-	   {
-	   rhogrid_DE[i]-=rho_mean_de;
-	   }
-
-*/
-
 
 	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
 	{
@@ -2375,6 +2333,10 @@ void advance_DE(const fftw_real da){
 
 #ifdef DEBUG
 				U_sq=0;
+				if(All.DarkEnergyW==0 && All.DarkEnergySoundSpeed==0){
+					assert(Pressure(rho_prev)==0);
+					assert(dPda(drhoda_current)==0);
+				}
 #endif
 				for( dim=0 ;dim<3  ; ++dim )
 				{
@@ -2385,7 +2347,6 @@ void advance_DE(const fftw_real da){
 						-a*a*H/rho_plus_P*U_prev[dim]*dPda(drhoda_current)
 						-gradphi[dim]; 
 					dUda[dim]=dUda[dim]/(a*a*H);
-
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
 #ifdef DEBUG
 					UgradU[dim]=-(U_prev[0]*gradU[dim][0]+U_prev[1]*gradU[dim][1]+U_prev[2]*gradU[dim][2]);
@@ -2527,7 +2488,7 @@ fftw_real Pressure(fftw_real rho){
 }
 
 fftw_real dPda(fftw_real drhoda){
-	return All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*drhoda-3*(All.DarkEnergyW+1)*(All.DarkEnergyW+All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed)*mean_DE/All.Time;
+	return All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*drhoda-3*(All.DarkEnergyW+1)*(All.DarkEnergyW-All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed)*mean_DE/All.Time;
 }
 
 void pm_stats(char* fname){
@@ -2611,11 +2572,7 @@ void pm_stats(char* fname){
 	std_dev=0;
 	min=0;
 	max=0;
-#ifdef DEBUG
-	unsigned int Nprobs=0;
-	unsigned int prob_index_arr[32];
-	unsigned int prob_index=0;
-#endif
+	
 	for( i=0 ; i<nslab_x ; ++i )
 		for( j=0 ; j<PMGRID ; ++j )
 			for( k=0 ; k<PMGRID ; ++k )
@@ -2640,31 +2597,8 @@ void pm_stats(char* fname){
 					min=delta;
 				else if(delta>max)
 					max=delta;
-#ifdef DEBUG
-				if(delta<-mean){
-					++Nprobs;
-					if( prob_index<32)
-						prob_index_arr[prob_index++]=index;
-				}
-
-#endif
 			}
-#ifdef DEBUG
-	if( Nprobs>0){
-		char err_str[256]="";
-		char errbuf[256]="";
-		sprintf(errbuf,"%u",prob_index_arr[0]);
-		for( i=1 ; i<prob_index ; ++i )
-		{
-			sprintf(err_str,", %u",prob_index_arr[i]);
-			strcat(errbuf,err_str);
-		}
-		sprintf(err_str,"%u problematic points detected (first 32 points: %s)",Nprobs,errbuf);
-
-		mpi_printf("%s\n",err_str);
-	}
-#endif
-
+	
 	MPI_Allreduce(MPI_IN_PLACE,&delta_mean,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
 	delta_mean=delta_mean/(PMGRID*PMGRID*PMGRID);
 	MPI_Allreduce(MPI_IN_PLACE,&std_dev,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
