@@ -88,10 +88,10 @@ static int nslabs_to_send;  /* How many slabs does this task need to send? Norma
 
 /* The dark energy arrays come in 2 forms: An array corresponding to the actual slabs of the task, and an expanded array
  * with space for 4 extra slabs (2 in each end) used for finite differencing */
-static fftw_real *rhogrid_tot, *rhogrid_tot_expanded, *Pgrid_fftw,*Pgrid_fftw_expanded; /* fftw-format arrays */
+static fftw_real *rhogrid_tot, *rhogrid_tot_expanded, *dPgrid_fftw,*dPgrid_fftw_expanded; /* fftw-format arrays */
 static fftw_real *rhogrid_DE_expanded, (*ugrid_DE_expanded)[3]; /* Normal format arrays */
-static fftw_real *rhogrid_DE, (*ugrid_DE)[3], *Pgrid; /* Normal format arrays */
-static fftw_complex *fft_of_rhogrid_tot, *fft_of_Pgrid; /* fft of the total dark energy and dark matter density. Also the fft of the velocity divergence (which will become the pressure)*/
+static fftw_real *rhogrid_DE, (*ugrid_DE)[3], *dPgrid; /* Normal format arrays */
+static fftw_complex *fft_of_rhogrid_tot, *fft_of_dPgrid; /* fft of the total dark energy and dark matter density. Also the fft of the velocity divergence (which will become the pressure)*/
 
 /* Mean densities of dark matter and dark energy */
 static fftw_real mean_DM, mean_DE;
@@ -209,7 +209,7 @@ void DE_allocate(int nx){
 		/* Expand the arrays with 4 extra slabs to store communication */
 		rhogrid_DE_expanded=my_malloc((4+nx)*PMGRID*PMGRID*sizeof(fftw_real));
 		ugrid_DE_expanded=my_malloc(3*(4+nx)*PMGRID*PMGRID*sizeof(fftw_real));
-		Pgrid=my_malloc(nx*PMGRID*PMGRID*sizeof(fftw_real));
+		dPgrid=my_malloc(nx*PMGRID*PMGRID*sizeof(fftw_real));
 
 		/* Arrays corresponding to the actual slabs of this task */
 		rhogrid_DE=rhogrid_DE_expanded+2*PMGRID*PMGRID;
@@ -222,14 +222,14 @@ void DE_allocate(int nx){
 		rhogrid_DE=NULL;
 		ugrid_DE_expanded=NULL;
 		ugrid_DE=NULL;
-		Pgrid=NULL;
+		dPgrid=NULL;
 	}
 }
 
 void PM_cleanup(int nx){ /* Like free_memory(), this is not actually called by the program */
 	free(rhogrid_DE_expanded);
 	free(ugrid_DE_expanded);
-	free(Pgrid);
+	free(dPgrid);
 	free(slabs_per_task);
 	free(first_slab_of_task);
 	rfftwnd_mpi_destroy_plan(fft_forward_plan);
@@ -303,21 +303,21 @@ void DE_periodic_allocate(void){
 #endif
 	if(nslab_x>0){
 		rhogrid_tot_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
-		Pgrid_fftw_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
+		dPgrid_fftw_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
 
 		/* rhogrid_tot is only the local array, rhogrid_tot_expanded is the local array and the 2 slabs before and 2 after */
 		rhogrid_tot=& rhogrid_tot_expanded[INDMAP(2,0,0)];
-		Pgrid_fftw=& rhogrid_tot_expanded[INDMAP(2,0,0)];
+		dPgrid_fftw=& dPgrid_fftw_expanded[INDMAP(2,0,0)];
 
 		fft_of_rhogrid_tot = (fftw_complex *) & rhogrid_tot[0];
-		fft_of_Pgrid = (fftw_complex *) & Pgrid_fftw[0];
+		fft_of_dPgrid = (fftw_complex *) & dPgrid_fftw[0];
 	}
 	else
 	{
 		rhogrid_tot_expanded=rhogrid_tot=NULL;
-		Pgrid_fftw_expanded=Pgrid_fftw=NULL;
+		dPgrid_fftw_expanded=dPgrid_fftw=NULL;
 		fft_of_rhogrid_tot=NULL;
-		fft_of_Pgrid=NULL;
+		fft_of_dPgrid=NULL;
 	}
 	if(first_DE_run){
 		const unsigned int size=2*(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real);
@@ -391,9 +391,9 @@ void free_dark_energy(void){
 	rhogrid_tot_expanded=NULL;
 	rhogrid_tot=NULL;
 
-	free(Pgrid_fftw_expanded);
-	Pgrid_fftw_expanded=NULL;
-	Pgrid_fftw=NULL;
+	free(dPgrid_fftw_expanded);
+	dPgrid_fftw_expanded=NULL;
+	dPgrid_fftw=NULL;
 }
 #endif
 
@@ -1031,7 +1031,7 @@ void pmforce_periodic_DE(void)
 		{
 			slab=LOGICAL_INDEX(slabs_to_recv[i]-slabstart_x+2); /* Index minus start of local patch + 2 since the received patch starts at relative index -2  */
 			/* Receive ugrid slabs. Tagged with the absolute slab index */
-			MPI_Irecv(ugrid_DE_expanded+slab*PMGRID*PMGRID,3*PMGRID*PMGRID*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i],MPI_COMM_WORLD,&comm_reqs[req_count++]);
+			MPI_Irecv(ugrid_DE_expanded+slab*PMGRID*PMGRID,3*PMGRID*PMGRID*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i]       ,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 			/* Receive rhogrid_DE slabs. Tagged with absolute slab index + PMGRID so as to not coincide with the ugrid tag */
 			MPI_Irecv(rhogrid_DE_expanded+slab*PMGRID*PMGRID,PMGRID*PMGRID*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 		}
@@ -1045,7 +1045,7 @@ void pmforce_periodic_DE(void)
 
 #ifdef DYNAMICAL_DE
 	/* Wait point for non-blocking exchange of DE slabs, only continue when all rhogrid_DE and ugrid_DE slabs haven been exchanged.
-	 * Still need to calculate and exchange rhogrid_tot for the total potential and Pgrid for the pressure pertubation */
+	 * Still need to calculate and exchange rhogrid_tot for the total potential and dPgrid for the pressure pertubation */
 	if(nslab_x>0){
 		if(MPI_SUCCESS!=MPI_Waitall(2*(nslabs_to_send+4),comm_reqs,status_DE)){
 			mpi_fprintf(stderr,"Error in MPI_Waitall (%s: %i)\n",__FILE__,__LINE__);
@@ -1060,7 +1060,7 @@ void pmforce_periodic_DE(void)
 #endif
 
 #ifdef DYNAMICAL_DE
-	/* Calculate divergence of U and store it in Pgrid_fftw.*/
+	/* Calculate divergence of U and store it in dPgrid_fftw.*/
 	fftw_real divU=0;
 	for( x=2 ; x<nslab_x+2 ; ++x ) /* Loop over slabs */
 		for( y=0 ; y<PMGRID ; ++y )
@@ -1093,7 +1093,6 @@ void pmforce_periodic_DE(void)
 							zll = LOGICAL_INDEX(z - 2);
 							break;
 					}
-
 					divU+=fac*(
 							(4.0/3.0)*
 							( - ugrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl][dim]
@@ -1106,7 +1105,7 @@ void pmforce_periodic_DE(void)
 							)
 						  );
 				}
-				Pgrid_fftw_expanded[INDMAP(x,y,z)]=divU;
+				dPgrid_fftw_expanded[INDMAP(x,y,z)]=divU;
 			}
 #endif
 
@@ -1144,8 +1143,9 @@ void pmforce_periodic_DE(void)
 
 	/* Do the FFT of the dark energy density field (the dark energy density field has been converted to mass in rhogrid_tot) */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
+
 	/* Do the FFT of the divergence of U */
-	rfftwnd_mpi(fft_forward_plan, 1, Pgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
+	rfftwnd_mpi(fft_forward_plan, 1, dPgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
 
 #endif
 #ifdef DEBUG
@@ -1153,13 +1153,13 @@ void pmforce_periodic_DE(void)
 		printf("Dark matter mean: %e\n", fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID));
 		double tmp=(double) fft_of_rhogrid_tot[0].re;
 		printf("Dark energy mean: %e\n",tmp/(PMGRID*PMGRID*PMGRID ));
-		tmp=fft_of_Pgrid[0].re;
+		tmp=fft_of_dPgrid[0].re;
 		printf("Dark energy pressure mean: %e\n",tmp/(PMGRID*PMGRID*PMGRID ));
 	}
 #endif
 
 	if(slabstart_y == 0)
-		fft_of_Pgrid[0].re = fft_of_Pgrid[0].im = 0.0;
+		fft_of_dPgrid[0].re = fft_of_dPgrid[0].im = 0.0;
 
 	/* Dark energy pressure conversion factors */
 	const double P_prefactor=3*All.Time*(1+All.DarkEnergyW)*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW*All.DarkEnergyW)*mean_DE*
@@ -1217,20 +1217,20 @@ void pmforce_periodic_DE(void)
 
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
 #ifdef DYNAMICAL_DE
-					fft_of_Pgrid[ip].re=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re/vol_fac
-						+P_prefactor*fft_of_Pgrid[ip].re/k2;
-					fft_of_Pgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im/vol_fac
-						+P_prefactor*fft_of_Pgrid[ip].im/k2;
+					fft_of_dPgrid[ip].re=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re/vol_fac
+						+P_prefactor*fft_of_dPgrid[ip].re/k2;
+					fft_of_dPgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im/vol_fac
+						+P_prefactor*fft_of_dPgrid[ip].im/k2;
 
-					fft_of_Pgrid[ip].re/=PMGRID*PMGRID*PMGRID;
-					fft_of_Pgrid[ip].im/=PMGRID*PMGRID*PMGRID;
+					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
+					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
 
 					/* Add 3dP term from the Poisson equation with dark energy.
 					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
 					 * to the dark energy density where cs is the sound speed
 					 * that relates the pressure to its density */				
-					fft_of_rhogrid_tot[ip].re +=  fft_of_Pgrid[ip].re;
-					fft_of_rhogrid_tot[ip].im +=  fft_of_Pgrid[ip].im;
+					fft_of_rhogrid_tot[ip].re +=  fft_of_dPgrid[ip].re;
+					fft_of_rhogrid_tot[ip].im +=  fft_of_dPgrid[ip].im;
 
 					fft_of_rhogrid_tot[ip].re += fft_of_rhogrid[ip].re;
 					fft_of_rhogrid_tot[ip].im += fft_of_rhogrid[ip].im;
@@ -1276,13 +1276,7 @@ void pmforce_periodic_DE(void)
 	rfftwnd_mpi(fft_inverse_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
 
 	/* Now do the inverse FFT to get dP */
-	rfftwnd_mpi(fft_inverse_plan, 1, Pgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
-
-	/* Add background term to the pressure grid */
-	for( i=0 ; i<nslab_x ; ++i )
-		for( j=0 ; j<PMGRID ; ++j )
-			for( k=0 ; k<PMGRID ; ++k )
-				Pgrid_fftw[INDMAP(i,j,k)]+=All.DarkEnergyW*mean_DE;
+	rfftwnd_mpi(fft_inverse_plan, 1, dPgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
 
 #endif
 
@@ -1453,7 +1447,7 @@ void pmforce_periodic_DE(void)
 			/* Send rhogrid_tot slabs. */ 
 			MPI_Isend(rhogrid_tot+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,send_tasks[i],slabs_to_send[i],MPI_COMM_WORLD,&comm_reqs[req_count++]);
 			/* Send pressure slabs. Tagged with absolute slab index + PMGRID so as to not coincide with the rhogrid tag */
-			MPI_Isend(Pgrid_fftw+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,send_tasks[i],slabs_to_send[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
+			MPI_Isend(dPgrid_fftw+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,send_tasks[i],slabs_to_send[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 		}
 
 		/* Receive slabs */
@@ -1463,7 +1457,7 @@ void pmforce_periodic_DE(void)
 			/* Receive rhogrid_tot slabs (this is the potential) */
 			MPI_Irecv(rhogrid_tot_expanded+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i],MPI_COMM_WORLD,&comm_reqs[req_count++]);
 			/* Receive pressure slabs. Tagged with absolute slab index + PMGRID so as to not coincide with the rhogrid tag */
-			MPI_Irecv(Pgrid_fftw_expanded+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,send_tasks[i],slabs_to_send[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
+			MPI_Irecv(dPgrid_fftw_expanded+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 		}
 	}
 #endif
@@ -1567,12 +1561,14 @@ void pmforce_periodic_DE(void)
 	/* Free all but the dark energy arrays */
 	pm_init_periodic_free();
 #ifdef DYNAMICAL_DE
-	/* Wait point for non-blocking exchange of rhogrid_tot and Pgrid slabs. */
+	master_printf("Waiting for potential and pressure\n");
+	/* Wait point for non-blocking exchange of rhogrid_tot and dPgrid slabs. */
 	if(nslab_x>0)
 		if(MPI_SUCCESS!=MPI_Waitall(2*(nslabs_to_send+4),comm_reqs,status_DE)){
 			mpi_fprintf(stderr,"Error in MPI_Waitall (%s: %i)\n",__FILE__,__LINE__);
 			endrun(1);
 		}
+	master_printf("Received potential and pressure\n");
 	free(comm_reqs);
 	comm_reqs=NULL;
 	free(status_DE);
@@ -2243,7 +2239,7 @@ void DE_IC(void){
 	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
 	{
 		rhogrid_DE[i]=mean_DE;
-		Pgrid[i]=All.DarkEnergyW*mean_DE;
+		dPgrid[i]=0;
 		for( j=0 ; j<3 ; ++j )
 		{
 			ugrid_DE[i][j]=0;
@@ -2350,13 +2346,13 @@ void advance_DE(const fftw_real da){
 					gradP[dim]=
 						fac*(
 								(4.0/3.0)*
-								( - Pgrid_fftw_expanded[INDMAP(xl,yl,zl)]
-								  + Pgrid_fftw_expanded[INDMAP(xr,yr,zr)]
+								( - dPgrid_fftw_expanded[INDMAP(xl,yl,zl)]
+								  + dPgrid_fftw_expanded[INDMAP(xr,yr,zr)]
 								)
 								+
 								(1.0 / 6.0) *
-								( Pgrid_fftw_expanded[INDMAP(xll,yll,zll)]
-								  - Pgrid_fftw_expanded[INDMAP(xrr,yrr,zrr)]
+								( dPgrid_fftw_expanded[INDMAP(xll,yll,zll)]
+								  - dPgrid_fftw_expanded[INDMAP(xrr,yrr,zrr)]
 								)
 						    );
 					/* In the following Udim is the U index, dim is the derivative index. 
@@ -2390,12 +2386,14 @@ void advance_DE(const fftw_real da){
 				}
 				for( dim=0 ;dim<3  ; ++dim )
 					U_prev[dim]=ugrid_DE[index][dim];
-				rho_plus_P=rhogrid_DE[index]+Pgrid_fftw[fftw_index];
-				/* TODO: More precise to have Pgrid as dP and not complete P for time derivatives */
-				Pdot=a*a*(Pgrid_fftw[fftw_index]-Pgrid[index])/(da*H);
+				rho_plus_P=rhogrid_DE[index]+All.DarkEnergyW*mean_DE+dPgrid_fftw[fftw_index];
+				
+				Pdot=(dPgrid_fftw[fftw_index]-dPgrid[index])/da;
+				Pdot+=-3*All.DarkEnergyW*(1+All.DarkEnergyW)*mean_DE/All.Time; //Background term
+				Pdot*=a*a*H; //Change to time derivative
 #ifdef DEBUG
 				if(rho_plus_P<0)
-					mpi_fprintf(stderr,"WARNING: rho+P<0 for point (%i, %i, %i)\n",x+nslab_x,y,z);
+					mpi_fprintf(stderr,"WARNING: rho+P<0 for point (%i, %i, %i)\n",x-2+slabstart_x,y,z);
 #endif
 
 				drhoda_current=
@@ -2442,10 +2440,10 @@ void advance_DE(const fftw_real da){
 	ugrid_DE_expanded=new_ugrid_DE_expanded;
 	ugrid_DE=ugrid_DE_expanded+2*PMGRID*PMGRID;
 
-	for( x=0 ; x<PMGRID ; ++x )
+	for( x=0 ; x<nslab_x ; ++x )
 		for( y=0 ; y<PMGRID ; ++y )
 			for( z=0 ; z<PMGRID ; ++z )
-				Pgrid[x*PMGRID*PMGRID+y*PMGRID+z]=Pgrid_fftw[INDMAP(x,y,z)];	
+				dPgrid[x*PMGRID*PMGRID+y*PMGRID+z]=dPgrid_fftw[INDMAP(x,y,z)];	
 }
 
 void pm_stats(char* fname){
@@ -2453,8 +2451,11 @@ void pm_stats(char* fname){
 	int i,j,k;
 	char buf[128]="";
 	char out[512]="";
+	const double a=All.Time;
+	const double H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)));
 
-	master_printf("Current physical Omega_matter=%.2f, Omega_lambda=%.2f\nCurrent co-moving Omega_matter=%.2f, Omega_lambda=%.2f\n",
+	master_printf("Hubble parameter: %.3e\nCurrent physical Omega_matter=%.2f, Omega_lambda=%.2f\nCurrent co-moving Omega_matter=%.2f, Omega_lambda=%.2f\n",
+			H,
 			All.Omega0/(All.Time*All.Time*All.Time),All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)),
 			All.Omega0,All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW));
 
