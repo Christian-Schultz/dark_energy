@@ -1162,8 +1162,12 @@ void pmforce_periodic_DE(void)
 		fft_of_dPgrid[0].re = fft_of_dPgrid[0].im = 0.0;
 
 	/* Dark energy pressure conversion factors */
-	const double P_prefactor=3*All.Time*(1+All.DarkEnergyW)*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW*All.DarkEnergyW)*mean_DE*
+	const double P_prefactor=3*All.Time*(1+All.DarkEnergyW)*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW)*mean_DE*
 		All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
+#ifdef DEBUG
+	if(All.DarkEnergyW==0 && All.DarkEnergySoundSpeed==0)
+		assert(P_prefactor==0);
+#endif
 	/* multiply with the Green's function for the potential, deconvolve */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -1228,7 +1232,13 @@ void pmforce_periodic_DE(void)
 					/* Add 3dP term from the Poisson equation with dark energy.
 					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
 					 * to the dark energy density where cs is the sound speed
-					 * that relates the pressure to its density */				
+					 * that relates the pressure to its density */	
+#ifdef DEBUG
+					if(All.DarkEnergySoundSpeed==0 && All.DarkEnergyW==0){
+						assert(fft_of_dPgrid[ip].re==fft_of_dPgrid[ip].im);
+						assert(fft_of_dPgrid[ip].im==0);
+					}
+#endif
 					fft_of_rhogrid_tot[ip].re +=  fft_of_dPgrid[ip].re;
 					fft_of_rhogrid_tot[ip].im +=  fft_of_dPgrid[ip].im;
 
@@ -2388,10 +2398,17 @@ void advance_DE(const fftw_real da){
 					U_prev[dim]=ugrid_DE[index][dim];
 				rho_plus_P=rhogrid_DE[index]+All.DarkEnergyW*mean_DE+dPgrid_fftw[fftw_index];
 				
-				Pdot=(dPgrid_fftw[fftw_index]-dPgrid[index])/da;
+				Pdot=(dPgrid_fftw[fftw_index]-dPgrid[index])/da; //delta term
 				Pdot+=-3*All.DarkEnergyW*(1+All.DarkEnergyW)*mean_DE/All.Time; //Background term
 				Pdot*=a*a*H; //Change to time derivative
 #ifdef DEBUG
+				if(All.DarkEnergyW==0 && All.DarkEnergySoundSpeed==0){
+					assert(Pdot==0);
+					assert(dPgrid_fftw[fftw_index]==0);
+					assert(dPgrid[index]==0);
+					for( dim=0 ;dim<3  ; ++dim )
+						assert(gradP[dim]==0);
+				}
 				if(rho_plus_P<0)
 					mpi_fprintf(stderr,"WARNING: rho+P<0 for point (%i, %i, %i)\n",x-2+slabstart_x,y,z);
 #endif
@@ -2423,7 +2440,7 @@ void advance_DE(const fftw_real da){
 				new_rhogrid_DE[index]=rhogrid_DE[index]+drhoda_current*da;
 
 #ifdef DEBUG
-				if(U_sq>C/All.UnitVelocity_in_cm_per_s){
+				if(sqrt(U_sq)>C/All.UnitVelocity_in_cm_per_s){
 					mpi_printf("Error: Point (%i, %i, %i) has U>c (U=%e). Terminating\n",x-2+slabstart_x,y,z,U_sq);
 					endrun(1);
 				}				
