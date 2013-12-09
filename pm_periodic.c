@@ -1251,12 +1251,6 @@ void pmforce_periodic_DE(void)
 					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
 					 * to the dark energy density where cs is the sound speed
 					 * that relates the pressure to its density */	
-#ifdef DEBUG
-					if(All.DarkEnergySoundSpeed==0 && All.DarkEnergyW==0){
-						assert(fft_of_dPgrid[ip].im==0);
-						assert(fft_of_dPgrid[ip].re==fft_of_dPgrid[ip].im);
-					}
-#endif
 					fft_of_rhogrid_tot[ip].re +=  fft_of_dPgrid[ip].re;
 					fft_of_rhogrid_tot[ip].im +=  fft_of_dPgrid[ip].im;
 
@@ -1610,27 +1604,7 @@ void pmforce_periodic_DE(void)
 	comm_reqs=NULL;
 	free(status_DE);
 	status_DE=NULL;
-#ifdef DEBUG
-	/* Sanity check on gauge term */
-	unsigned int index, fftw_index;
-	bad_points=0;
-	for( i=0 ; i<nslab_x ; ++i )
-		for( j=0 ; j<PMGRID ; ++j )
-			for( k=0 ; k<PMGRID ; ++k )
-			{
-				index=i*PMGRID*PMGRID+j*PMGRID+k;
-				fftw_index=INDMAP(i,j,k);
-				divU=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*(rhogrid_DE[index]-mean_DE_dbg); /* Normal term */
-				temp=dPgrid_fftw[fftw_index]-divU; /* Gauge term */
-				if (fabs(temp)>fabs(divU))
-					bad_points++;
-			}
 
-	MPI_Allreduce(MPI_IN_PLACE,&bad_points,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
-	if(bad_points>0)
-		master_printf("Number of gauge term bad points: %i (%e of total)\n",bad_points,bad_points/(1.0*PMGRID*PMGRID*PMGRID));
-
-#endif
 	/* Calculate the next PM timestep and update the DE equations - use finite differences */
 	double hubble_a = All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) +  All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW));
 	hubble_a = All.Hubble * sqrt(hubble_a);
