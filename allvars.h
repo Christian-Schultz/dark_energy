@@ -323,8 +323,9 @@ extern struct global_data_all_processes
   double DarkEnergyW;  /*!< Dark Energy equation of state */
   double DarkEnergySoundSpeed; /*!< Dark Energy sound speed relative to the lightspeed */
   double DarkEnergyBegin; /*!< Time to toggle dark energy clustering */
-  char DarkEnergyFileBase[MAXLEN_FILENAME];      /*!< basename to construct the names of the dark energy snapshot files */
   char DarkEnergyStatFile[MAXLEN_FILENAME];      /*!< Name of dark energy statistics file */
+  int DarkEnergyNumOutputs;   /* !< Number of dark energy grids to dump */
+  double DarkEnergyOutputStart; /* !< Time to start dumping dark energy */
 
   /* Code options */
 
@@ -415,18 +416,18 @@ extern struct global_data_all_processes
   /* adjusts accuracy of time-integration */
 
   double ErrTolIntAccuracy;	/*!< accuracy tolerance parameter \f$ \eta \f$ for timestep criterion. The
-                                     timestep is \f$ \Delta t = \sqrt{\frac{2 \eta eps}{a}} \f$ */
+				  timestep is \f$ \Delta t = \sqrt{\frac{2 \eta eps}{a}} \f$ */
 
   double MinSizeTimestep;       /*!< minimum allowed timestep. Normally, the simulation terminates if the
-                                     timestep determined by the timestep criteria falls below this limit. */ 
+				  timestep determined by the timestep criteria falls below this limit. */ 
   double MaxSizeTimestep;       /*!< maximum allowed timestep */
 
   double MaxRMSDisplacementFac; /*!< this determines a global timestep criterion for cosmological simulations
-                                     in comoving coordinates.  To this end, the code computes the rms velocity
-                                     of all particles, and limits the timestep such that the rms displacement
-                                     is a fraction of the mean particle separation (determined from the
-                                     particle mass and the cosmological parameters). This parameter specifies
-                                     this fraction. */
+				  in comoving coordinates.  To this end, the code computes the rms velocity
+				  of all particles, and limits the timestep such that the rms displacement
+				  is a fraction of the mean particle separation (determined from the
+				  particle mass and the cosmological parameters). This parameter specifies
+				  this fraction. */
 
   double CourantFac;		/*!< SPH-Courant factor */
 
@@ -463,9 +464,9 @@ extern struct global_data_all_processes
 
 
   double MassTable[6];          /*!< Table with particle masses for particle types with equal mass.
-                                     If particle masses are all equal for one type, the corresponding entry in MassTable 
-                                     is set to this value, allowing the size of the snapshot files to be reduced. */
-  
+				  If particle masses are all equal for one type, the corresponding entry in MassTable 
+				  is set to this value, allowing the size of the snapshot files to be reduced. */
+
 
 
   /* some filenames */
@@ -485,7 +486,7 @@ extern struct global_data_all_processes
   int OutputListLength;                        /*!< number of output times stored in the table of desired output times */
 
 }
- All;                                          /*!< a container variable for global variables that are equal on all processors */
+All;                                          /*!< a container variable for global variables that are equal on all processors */
 
 
 
@@ -494,40 +495,40 @@ extern struct global_data_all_processes
  */
 extern struct particle_data
 {
-  FLOAT Pos[3];			/*!< particle position at its current time */
-  FLOAT Mass;			/*!< particle mass */
-  FLOAT Vel[3];			/*!< particle velocity at its current time */
-  FLOAT GravAccel[3];		/*!< particle acceleration due to gravity */
+	FLOAT Pos[3];			/*!< particle position at its current time */
+	FLOAT Mass;			/*!< particle mass */
+	FLOAT Vel[3];			/*!< particle velocity at its current time */
+	FLOAT GravAccel[3];		/*!< particle acceleration due to gravity */
 #ifdef PMGRID
-  FLOAT GravPM[3];		/*!< particle acceleration due to long-range PM gravity force*/
+	FLOAT GravPM[3];		/*!< particle acceleration due to long-range PM gravity force*/
 #endif
 #ifdef FORCETEST
-  FLOAT GravAccelDirect[3];	/*!< particle acceleration when computed with direct summation */
+	FLOAT GravAccelDirect[3];	/*!< particle acceleration when computed with direct summation */
 #endif
-  FLOAT Potential;		/*!< gravitational potential */
-  FLOAT OldAcc;			/*!< magnitude of old gravitational force. Used in relative opening criterion */
+	FLOAT Potential;		/*!< gravitational potential */
+	FLOAT OldAcc;			/*!< magnitude of old gravitational force. Used in relative opening criterion */
 #ifndef LONGIDS
-  unsigned int ID;		/*!< particle identifier */
+	unsigned int ID;		/*!< particle identifier */
 #else
-  unsigned long long ID;        /*!< particle identifier */
+	unsigned long long ID;        /*!< particle identifier */
 #endif
 
-  int Type;		        /*!< flags particle type.  0=gas, 1=halo, 2=disk, 3=bulge, 4=stars, 5=bndry */
-  int Ti_endstep;               /*!< marks start of current timestep of particle on integer timeline */ 
-  int Ti_begstep;               /*!< marks end of current timestep of particle on integer timeline */
+	int Type;		        /*!< flags particle type.  0=gas, 1=halo, 2=disk, 3=bulge, 4=stars, 5=bndry */
+	int Ti_endstep;               /*!< marks start of current timestep of particle on integer timeline */ 
+	int Ti_begstep;               /*!< marks end of current timestep of particle on integer timeline */
 #ifdef FLEXSTEPS
-  int FlexStepGrp;		/*!< a random 'offset' on the timeline to create a smooth groouping of particles */
+	int FlexStepGrp;		/*!< a random 'offset' on the timeline to create a smooth groouping of particles */
 #endif
-  float GravCost;		/*!< weight factor used for balancing the work-load */
+	float GravCost;		/*!< weight factor used for balancing the work-load */
 #ifdef PSEUDOSYMMETRIC
-  float AphysOld;               /*!< magnitude of acceleration in last timestep. Used to make a first order
-                                     prediction of the change of acceleration expected in the future, thereby
-                                     allowing to guess whether a decrease/increase of the timestep should occur
-                                     in the timestep that is started. */
+	float AphysOld;               /*!< magnitude of acceleration in last timestep. Used to make a first order
+					prediction of the change of acceleration expected in the future, thereby
+					allowing to guess whether a decrease/increase of the timestep should occur
+					in the timestep that is started. */
 #endif
 }
- *P,              /*!< holds particle data on local processor */
- *DomainPartBuf;  /*!< buffer for particle data used in domain decomposition */
+*P,              /*!< holds particle data on local processor */
+	*DomainPartBuf;  /*!< buffer for particle data used in domain decomposition */
 
 
 /* the following struture holds data that is stored for each SPH particle in addition to the collisionless
@@ -535,62 +536,62 @@ extern struct particle_data
  */
 extern struct sph_particle_data
 {
-  FLOAT Entropy;                /*!< current value of entropy (actually entropic function) of particle */
-  FLOAT Density;		/*!< current baryonic mass density of particle */
-  FLOAT Hsml;			/*!< current smoothing length */
-  FLOAT Left;                   /*!< lower bound in iterative smoothing length search */  
-  FLOAT Right;                  /*!< upper bound in iterative smoothing length search */ 
-  FLOAT NumNgb;                 /*!< weighted number of neighbours found */
-  FLOAT Pressure;		/*!< current pressure */
-  FLOAT DtEntropy;              /*!< rate of change of entropy */
-  FLOAT HydroAccel[3];		/*!< acceleration due to hydrodynamical force */
-  FLOAT VelPred[3];		/*!< predicted SPH particle velocity at the current time */
-  FLOAT DivVel;			/*!< local velocity divergence */
-  FLOAT CurlVel;		/*!< local velocity curl */
-  FLOAT Rot[3];		        /*!< local velocity curl */
-  FLOAT DhsmlDensityFactor;     /*!< correction factor needed in the equation of motion of the conservative entropy formulation of SPH */
-  FLOAT MaxSignalVel;           /*!< maximum "signal velocity" occuring for this particle */
+	FLOAT Entropy;                /*!< current value of entropy (actually entropic function) of particle */
+	FLOAT Density;		/*!< current baryonic mass density of particle */
+	FLOAT Hsml;			/*!< current smoothing length */
+	FLOAT Left;                   /*!< lower bound in iterative smoothing length search */  
+	FLOAT Right;                  /*!< upper bound in iterative smoothing length search */ 
+	FLOAT NumNgb;                 /*!< weighted number of neighbours found */
+	FLOAT Pressure;		/*!< current pressure */
+	FLOAT DtEntropy;              /*!< rate of change of entropy */
+	FLOAT HydroAccel[3];		/*!< acceleration due to hydrodynamical force */
+	FLOAT VelPred[3];		/*!< predicted SPH particle velocity at the current time */
+	FLOAT DivVel;			/*!< local velocity divergence */
+	FLOAT CurlVel;		/*!< local velocity curl */
+	FLOAT Rot[3];		        /*!< local velocity curl */
+	FLOAT DhsmlDensityFactor;     /*!< correction factor needed in the equation of motion of the conservative entropy formulation of SPH */
+	FLOAT MaxSignalVel;           /*!< maximum "signal velocity" occuring for this particle */
 }
- *SphP,                        	/*!< holds SPH particle data on local processor */
- *DomainSphBuf;                 /*!< buffer for SPH particle data in domain decomposition */
+*SphP,                        	/*!< holds SPH particle data on local processor */
+	*DomainSphBuf;                 /*!< buffer for SPH particle data in domain decomposition */
 
 
 
 
 
 /*  Variables for Tree
- */
+*/
 
 extern int MaxNodes;		/*!< maximum allowed number of internal nodes */
 extern int Numnodestree;	/*!< number of (internal) nodes in each tree */
 
 extern struct NODE
 {
-  FLOAT len;			/*!< sidelength of treenode */
-  FLOAT center[3];		/*!< geometrical center of node */
+	FLOAT len;			/*!< sidelength of treenode */
+	FLOAT center[3];		/*!< geometrical center of node */
 #ifdef ADAPTIVE_GRAVSOFT_FORGAS
-  FLOAT maxsoft;                /*!< hold the maximum gravitational softening of particles in the 
-                                     node if the ADAPTIVE_GRAVSOFT_FORGAS option is selected */
+	FLOAT maxsoft;                /*!< hold the maximum gravitational softening of particles in the 
+					node if the ADAPTIVE_GRAVSOFT_FORGAS option is selected */
 #endif
-  union
-  {
-    int suns[8];		/*!< temporary pointers to daughter nodes */
-    struct
-    {
-      FLOAT s[3];               /*!< center of mass of node */
-      FLOAT mass;               /*!< mass of node */
-      int bitflags;             /*!< a bit-field with various information on the node */
-      int sibling;              /*!< this gives the next node in the walk in case the current node can be used */
-      int nextnode;             /*!< this gives the next node in case the current node needs to be opened */
-      int father;               /*!< this gives the parent node of each node (or -1 if we have the root node) */
-    }
-    d;
-  }
-  u;
+	union
+	{
+		int suns[8];		/*!< temporary pointers to daughter nodes */
+		struct
+		{
+			FLOAT s[3];               /*!< center of mass of node */
+			FLOAT mass;               /*!< mass of node */
+			int bitflags;             /*!< a bit-field with various information on the node */
+			int sibling;              /*!< this gives the next node in the walk in case the current node can be used */
+			int nextnode;             /*!< this gives the next node in case the current node needs to be opened */
+			int father;               /*!< this gives the parent node of each node (or -1 if we have the root node) */
+		}
+		d;
+	}
+	u;
 }
- *Nodes_base,                   /*!< points to the actual memory allocted for the nodes */
- *Nodes;                        /*!< this is a pointer used to access the nodes which is shifted such that Nodes[All.MaxPart] 
- 				     gives the first allocated node */
+*Nodes_base,                   /*!< points to the actual memory allocted for the nodes */
+	*Nodes;                        /*!< this is a pointer used to access the nodes which is shifted such that Nodes[All.MaxPart] 
+					 gives the first allocated node */
 
 
 extern int *Nextnode;	        /*!< gives next node in tree walk */
@@ -599,60 +600,60 @@ extern int *Father;	        /*!< gives parent node in tree    */
 
 extern struct extNODE           /*!< this structure holds additional tree-node information which is not needed in the actual gravity computation */
 {
-  FLOAT hmax;			/*!< maximum SPH smoothing length in node. Only used for gas particles */
-  FLOAT vs[3];			/*!< center-of-mass velocity */
+	FLOAT hmax;			/*!< maximum SPH smoothing length in node. Only used for gas particles */
+	FLOAT vs[3];			/*!< center-of-mass velocity */
 }
- *Extnodes_base,                /*!< points to the actual memory allocted for the extended node information */
- *Extnodes;                     /*!< provides shifted access to extended node information, parallel to Nodes/Nodes_base */
+*Extnodes_base,                /*!< points to the actual memory allocted for the extended node information */
+	*Extnodes;                     /*!< provides shifted access to extended node information, parallel to Nodes/Nodes_base */
 
 
 
 
 
 /*! Header for the standard file format.
- */
+*/
 extern struct io_header
 {
-  int npart[6];                        /*!< number of particles of each type in this file */
-  double mass[6];                      /*!< mass of particles of each type. If 0, then the masses are explicitly
-                                            stored in the mass-block of the snapshot file, otherwise they are omitted */
-  double time;                         /*!< time of snapshot file */
-  double redshift;                     /*!< redshift of snapshot file */
-  int flag_sfr;                        /*!< flags whether the simulation was including star formation */
-  int flag_feedback;                   /*!< flags whether feedback was included (obsolete) */
-  unsigned int npartTotal[6];          /*!< total number of particles of each type in this snapshot. This can be
-                                            different from npart if one is dealing with a multi-file snapshot. */
-  int flag_cooling;                    /*!< flags whether cooling was included  */
-  int num_files;                       /*!< number of files in multi-file snapshot */
-  double BoxSize;                      /*!< box-size of simulation in case periodic boundaries were used */
-  double Omega0;                       /*!< matter density in units of critical density */
-  double OmegaLambda;                  /*!< cosmological constant parameter */
-  double HubbleParam;                  /*!< Hubble parameter in units of 100 km/sec/Mpc */
-  int flag_stellarage;                 /*!< flags whether the file contains formation times of star particles */
-  int flag_metals;                     /*!< flags whether the file contains metallicity values for gas and star particles */
-  unsigned int npartTotalHighWord[6];  /*!< High word of the total number of particles of each type */
-  int  flag_entropy_instead_u;         /*!< flags that IC-file contains entropy instead of u */
-  char fill[60];	               /*!< fills to 256 Bytes */
+	int npart[6];                        /*!< number of particles of each type in this file */
+	double mass[6];                      /*!< mass of particles of each type. If 0, then the masses are explicitly
+					       stored in the mass-block of the snapshot file, otherwise they are omitted */
+	double time;                         /*!< time of snapshot file */
+	double redshift;                     /*!< redshift of snapshot file */
+	int flag_sfr;                        /*!< flags whether the simulation was including star formation */
+	int flag_feedback;                   /*!< flags whether feedback was included (obsolete) */
+	unsigned int npartTotal[6];          /*!< total number of particles of each type in this snapshot. This can be
+					       different from npart if one is dealing with a multi-file snapshot. */
+	int flag_cooling;                    /*!< flags whether cooling was included  */
+	int num_files;                       /*!< number of files in multi-file snapshot */
+	double BoxSize;                      /*!< box-size of simulation in case periodic boundaries were used */
+	double Omega0;                       /*!< matter density in units of critical density */
+	double OmegaLambda;                  /*!< cosmological constant parameter */
+	double HubbleParam;                  /*!< Hubble parameter in units of 100 km/sec/Mpc */
+	int flag_stellarage;                 /*!< flags whether the file contains formation times of star particles */
+	int flag_metals;                     /*!< flags whether the file contains metallicity values for gas and star particles */
+	unsigned int npartTotalHighWord[6];  /*!< High word of the total number of particles of each type */
+	int  flag_entropy_instead_u;         /*!< flags that IC-file contains entropy instead of u */
+	char fill[60];	               /*!< fills to 256 Bytes */
 }
- header;                               /*!< holds header for snapshot files */
+header;                               /*!< holds header for snapshot files */
 
 
 #define IO_NBLOCKS 11   /*!< total number of defined information blocks for snapshot files.
-                             Must be equal to the number of entries in "enum iofields" */
+			  Must be equal to the number of entries in "enum iofields" */
 
 enum iofields           /*!< this enumeration lists the defined output blocks in snapshot files. Not all of them need to be present. */
 { 
-  IO_POS,
-  IO_VEL,
-  IO_ID,
-  IO_MASS,
-  IO_U,
-  IO_RHO,
-  IO_HSML,
-  IO_POT,
-  IO_ACCEL,
-  IO_DTENTR,
-  IO_TSTP
+	IO_POS,
+	IO_VEL,
+	IO_ID,
+	IO_MASS,
+	IO_U,
+	IO_RHO,
+	IO_HSML,
+	IO_POT,
+	IO_ACCEL,
+	IO_DTENTR,
+	IO_TSTP
 };
 
 
@@ -660,117 +661,117 @@ extern char Tab_IO_Labels[IO_NBLOCKS][4];   /*<! This table holds four-byte char
 
 
 /* global state of system, used for global statistics
- */
+*/
 extern struct state_of_system
 {
-  double Mass;
-  double EnergyKin;
-  double EnergyPot;
-  double EnergyInt;
-  double EnergyTot;
-  double Momentum[4];
-  double AngMomentum[4];
-  double CenterOfMass[4];
-  double MassComp[6];
-  double EnergyKinComp[6];
-  double EnergyPotComp[6];
-  double EnergyIntComp[6];
-  double EnergyTotComp[6];
-  double MomentumComp[6][4]; 
-  double AngMomentumComp[6][4]; 
-  double CenterOfMassComp[6][4];
+	double Mass;
+	double EnergyKin;
+	double EnergyPot;
+	double EnergyInt;
+	double EnergyTot;
+	double Momentum[4];
+	double AngMomentum[4];
+	double CenterOfMass[4];
+	double MassComp[6];
+	double EnergyKinComp[6];
+	double EnergyPotComp[6];
+	double EnergyIntComp[6];
+	double EnergyTotComp[6];
+	double MomentumComp[6][4]; 
+	double AngMomentumComp[6][4]; 
+	double CenterOfMassComp[6][4];
 }
- SysState;                       /*<! Structure for storing some global statistics about the simulation. */
- 
+SysState;                       /*<! Structure for storing some global statistics about the simulation. */
+
 
 
 /* Various structures for communication
- */
+*/
 extern struct gravdata_in
 {
-  union
-  {
-    FLOAT Pos[3];
-    FLOAT Acc[3];
-    FLOAT Potential;
-  }
-  u;
+	union
+	{
+		FLOAT Pos[3];
+		FLOAT Acc[3];
+		FLOAT Potential;
+	}
+	u;
 #ifdef UNEQUALSOFTENINGS
-  int Type;
+	int Type;
 #ifdef ADAPTIVE_GRAVSOFT_FORGAS
-  FLOAT Soft;
+	FLOAT Soft;
 #endif
 #endif
-  union
-  {
-    FLOAT OldAcc;
-    int Ninteractions;
-  }
-  w;
+	union
+	{
+		FLOAT OldAcc;
+		int Ninteractions;
+	}
+	w;
 }
- *GravDataIn,                   /*!< holds particle data to be exported to other processors */
- *GravDataGet,                  /*!< holds particle data imported from other processors */
- *GravDataResult,               /*!< holds the partial results computed for imported particles. Note: We use GravDataResult = GravDataGet, such that the result replaces the imported data */
- *GravDataOut;                  /*!< holds partial results received from other processors. This will overwrite the GravDataIn array */
+*GravDataIn,                   /*!< holds particle data to be exported to other processors */
+	*GravDataGet,                  /*!< holds particle data imported from other processors */
+	*GravDataResult,               /*!< holds the partial results computed for imported particles. Note: We use GravDataResult = GravDataGet, such that the result replaces the imported data */
+	*GravDataOut;                  /*!< holds partial results received from other processors. This will overwrite the GravDataIn array */
 
 extern struct gravdata_index
 {
-  int Task;
-  int Index;
-  int SortIndex;
+	int Task;
+	int Index;
+	int SortIndex;
 }
- *GravDataIndexTable;           /*!< the particles to be exported are grouped by task-number. This table allows the results to be disentangled again and to be assigned to the correct particle */
+*GravDataIndexTable;           /*!< the particles to be exported are grouped by task-number. This table allows the results to be disentangled again and to be assigned to the correct particle */
 
 
 
 extern struct densdata_in
 {
-  FLOAT Pos[3];
-  FLOAT Vel[3];
-  FLOAT Hsml;
-  int Index;
-  int Task;
+	FLOAT Pos[3];
+	FLOAT Vel[3];
+	FLOAT Hsml;
+	int Index;
+	int Task;
 }
- *DensDataIn,                   /*!< holds particle data for SPH density computation to be exported to other processors */
- *DensDataGet;                  /*!< holds imported particle data for SPH density computation */
+*DensDataIn,                   /*!< holds particle data for SPH density computation to be exported to other processors */
+	*DensDataGet;                  /*!< holds imported particle data for SPH density computation */
 
 extern struct densdata_out
 {
-  FLOAT Rho;
-  FLOAT Div, Rot[3];
-  FLOAT DhsmlDensity;
-  FLOAT Ngb;
+	FLOAT Rho;
+	FLOAT Div, Rot[3];
+	FLOAT DhsmlDensity;
+	FLOAT Ngb;
 }
- *DensDataResult,               /*!< stores the locally computed SPH density results for imported particles */
- *DensDataPartialResult;        /*!< imported partial SPH density results from other processors */
+*DensDataResult,               /*!< stores the locally computed SPH density results for imported particles */
+	*DensDataPartialResult;        /*!< imported partial SPH density results from other processors */
 
 
 
 extern struct hydrodata_in
 {
-  FLOAT Pos[3];
-  FLOAT Vel[3];
-  FLOAT Hsml;
-  FLOAT Mass;
-  FLOAT Density;
-  FLOAT Pressure;
-  FLOAT F1;
-  FLOAT DhsmlDensityFactor;
-  int   Timestep;
-  int   Task;
-  int   Index;
+	FLOAT Pos[3];
+	FLOAT Vel[3];
+	FLOAT Hsml;
+	FLOAT Mass;
+	FLOAT Density;
+	FLOAT Pressure;
+	FLOAT F1;
+	FLOAT DhsmlDensityFactor;
+	int   Timestep;
+	int   Task;
+	int   Index;
 }
- *HydroDataIn,                  /*!< holds particle data for SPH hydro-force computation to be exported to other processors */
- *HydroDataGet;                 /*!< holds imported particle data for SPH hydro-force computation */
+*HydroDataIn,                  /*!< holds particle data for SPH hydro-force computation to be exported to other processors */
+	*HydroDataGet;                 /*!< holds imported particle data for SPH hydro-force computation */
 
 extern struct hydrodata_out
 {
-  FLOAT Acc[3];
-  FLOAT DtEntropy;
-  FLOAT MaxSignalVel;
+	FLOAT Acc[3];
+	FLOAT DtEntropy;
+	FLOAT MaxSignalVel;
 }
- *HydroDataResult,              /*!< stores the locally computed SPH hydro results for imported particles */
- *HydroDataPartialResult;       /*!< imported partial SPH hydro-force results from other processors */
+*HydroDataResult,              /*!< stores the locally computed SPH hydro results for imported particles */
+	*HydroDataPartialResult;       /*!< imported partial SPH hydro-force results from other processors */
 
 
 #endif

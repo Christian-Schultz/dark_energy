@@ -68,17 +68,16 @@ static fftw_complex *fft_of_rhogrid;
 static FLOAT to_slab_fac;
 
 void CIC(int*,int*);
-#ifdef DEBUG
-void write_header_debug(FILE *);
-void write_dm_debug(char *);
-#endif
+
 #ifdef DYNAMICAL_DE
 static short int first_DE_run=1;
 void DE_IC(void);  /* Dark energy initial conditions */
 void advance_DE(fftw_real); /* Function prototype for the routine responsible for advancing the dark energy density and velocity perturbations (rhodot and Udot) */
 
-void write_de_debug(char *);
-void write_U_debug(char *);
+void write_header(FILE *);
+void write_dm_grid(char *);
+void write_de_grid(char *);
+void write_U_grid(char *);
 
 static int recv_tasks[4]; /* The 4 tasks that have the slabs this task needs (ordered left left, left, right, right right) */
 static int send_tasks[6]; /* The (up to 6) tasks that needs this task's slabs. Only in the case where some tasks, but not all, only have 1 slab it is neccessary to communicate with 6 others, otherwise this is normally 4*/
@@ -1112,15 +1111,14 @@ void pmforce_periodic_DE(void)
 	sprintf(fname_DE,"%sDE_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
 	sprintf(fname_DM,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
 	sprintf(fname_U,"%sU_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
-	if(All.Time>0.3 && Nruns<128){
+	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
 		master_printf("Writing dm+de grids\n");
-		write_dm_debug(fname_DM);
-		write_de_debug(fname_DE);
-		write_U_debug(fname_U);
+		write_dm_grid(fname_DM);
+		write_de_grid(fname_DE);
+		write_U_grid(fname_U);
 		++Nruns;
 	}
 #endif
-
 
 	/* Print simulation statistics to file */
 	sprintf(statname,"%s%s",All.OutputDir,All.DarkEnergyStatFile);
@@ -2628,9 +2626,8 @@ void pm_stats(char* fname){
 		fclose(fd);
 }
 
-#ifdef DEBUG
 
-void write_dm_debug(char* fname_DM){
+void write_dm_grid(char* fname_DM){
 	if(nslab_x>0){
 		int i,j,k,npts;
 		npts=nslab_x*PMGRID*PMGRID;
@@ -2646,7 +2643,7 @@ void write_dm_debug(char* fname_DM){
 				}
 
 		FILE *fd=fopen(fname_DM,"w");
-		write_header_debug(fd);
+		write_header(fd);
 		fwrite(slabs,npts,sizeof(float),fd);
 		fclose(fd);
 
@@ -2654,7 +2651,7 @@ void write_dm_debug(char* fname_DM){
 	}
 }
 
-void write_de_debug(char* fname_DE){
+void write_de_grid(char* fname_DE){
 	if(nslab_x>0){
 		int i,npts;
 		npts=nslab_x*PMGRID*PMGRID;
@@ -2665,7 +2662,7 @@ void write_de_debug(char* fname_DE){
 		}
 
 		FILE *fd=fopen(fname_DE,"w");
-		write_header_debug(fd);
+		write_header(fd);
 		fwrite(slabs,npts,sizeof(float),fd);
 		fclose(fd);
 
@@ -2674,7 +2671,7 @@ void write_de_debug(char* fname_DE){
 
 }
 
-void write_U_debug(char* fname_U){
+void write_U_grid(char* fname_U){
 	if(nslab_x>0){
 		int i,j,npts;
 		npts=3*nslab_x*PMGRID*PMGRID;
@@ -2688,7 +2685,7 @@ void write_U_debug(char* fname_U){
 		}
 
 		FILE *fd=fopen(fname_U,"w");
-		write_header_debug(fd);
+		write_header(fd);
 		fwrite(slabs,npts,sizeof(float),fd);
 		fclose(fd);
 
@@ -2696,7 +2693,7 @@ void write_U_debug(char* fname_U){
 	}
 }
 
-void write_header_debug(FILE* fd){
+void write_header(FILE* fd){
 	const unsigned int gridsize=PMGRID;
 	fwrite(&All.Time,1,sizeof(double),fd);
 	fwrite(&All.BoxSize,1,sizeof(double),fd);
@@ -2710,7 +2707,6 @@ void write_header_debug(FILE* fd){
 #endif
 	fwrite(&gridsize,1,sizeof(unsigned int),fd);
 }
-#endif
 #endif
 
 #endif
