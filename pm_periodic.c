@@ -2508,7 +2508,7 @@ void pm_stats(char* fname){
 			All.Omega0,All.OmegaLambda/pow(All.Time,3.0*All.DarkEnergyW));
 
 
-	if(slabstart_y==0){
+	if(ThisTask==0){
 		if(first_DE_run==1){
 			fd=fopen(fname,"w");
 			fprintf(fd,"Time        \tmean_dm     \tdelta_dm_av    \tstd_dev_dm  \tmin_dm      \tmax_dm      \tmean_de     \tdelta_de_av    \tstd_dev_de  \tmin_de      \tmax_de      \n");
@@ -2559,7 +2559,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&max,1,FFTW_MPITYPE,MPI_MAX,MPI_COMM_WORLD);
 
 	double print_dummy;
-	if(slabstart_y==0 && PMTask){
+	if(ThisTask==0){
 		print_dummy=mean_DM*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 		printf("Background mass of dark matter in comoving mesh cell is: %e\n",print_dummy);
 		print_dummy*=All.Time*All.Time*All.Time;
@@ -2613,7 +2613,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&min,1,FFTW_MPITYPE,MPI_MIN,MPI_COMM_WORLD);
 	MPI_Allreduce(MPI_IN_PLACE,&max,1,FFTW_MPITYPE,MPI_MAX,MPI_COMM_WORLD);
 
-	if(slabstart_y==0){
+	if(ThisTask==0){
 		print_dummy=mean_DE*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 		printf("Background mass of dark energy in comoving mesh cell is: %e\n",print_dummy);
 		print_dummy*=All.Time*All.Time*All.Time;
@@ -2625,7 +2625,7 @@ void pm_stats(char* fname){
 		strcat(out,buf);
 		fprintf(fd,"%s",out);
 	}
-	if(slabstart_y==0)
+	if(ThisTask==0)
 		fclose(fd);
 }
 
