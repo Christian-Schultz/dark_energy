@@ -297,10 +297,10 @@ void pm_init_periodic(void)
 #ifdef DYNAMICAL_DE
 void DE_periodic_allocate(void){
 	/* Expand with 4 slabs to store communication data */
-#ifdef DEBUG
-	assert(fftsize==nslab_x*PMGRID2*PMGRID);
-#endif
 	if(nslab_x>0){
+#ifdef DEBUG
+		assert(fftsize==nslab_x*PMGRID2*PMGRID);
+#endif
 		rhogrid_tot_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
 		dPgrid_fftw_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
 
@@ -991,7 +991,7 @@ void pmforce_periodic_DE(void)
 				"Dark energy gauge transformation important for a< %e (z > %e)\n"				
 				,All.DarkEnergySoundSpeed,All.DarkEnergyW,
 				temp,1/temp-1
-				);
+			     );
 		DE_allocate(nslab_x);
 		DE_IC();
 	}
@@ -1098,7 +1098,7 @@ void pmforce_periodic_DE(void)
 							( ugrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll][dim] 
 							  - ugrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr][dim]
 							)
-						  );
+						     );
 				}
 				dPgrid_fftw_expanded[INDMAP(x,y,z)]=divU;
 			}
@@ -1152,7 +1152,7 @@ void pmforce_periodic_DE(void)
 	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;
 	const double H=All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
 	const double P_prefactor=3*All.Time*H*(1+All.DarkEnergyW)*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW)*mean_DE/(lightspeed*lightspeed);
-		
+
 	/* Dummy variable to store rho */
 	fftw_complex rho_temp;
 	/* Conversion from integer k to comoving k. Needs additional 1/scalefactor to be physical k */
@@ -1240,7 +1240,7 @@ void pmforce_periodic_DE(void)
 
 					trigger=0;
 #endif
-					
+
 
 					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
 					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
@@ -1264,7 +1264,7 @@ void pmforce_periodic_DE(void)
 					/* Multiply with the Green's function (constants will be corrected by potfac in advance_DE. Note the difference between the physical k and the integer k used here as mentioned above) */
 					fft_of_rhogrid_tot[ip].re *= -1.0/k2;
 					fft_of_rhogrid_tot[ip].im *= -1.0/k2;
-					
+
 					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation in physical coordinates */
 					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). 
 					 * Multiply with the Green's function and smoothing kernel. 
@@ -1294,7 +1294,7 @@ void pmforce_periodic_DE(void)
 			3*All.Time*(1+All.DarkEnergyW)*(pow(All.DarkEnergySoundSpeed,2)-All.DarkEnergyW),
 			P_std.re, P_std.im,
 			P_gauge_std.re, P_gauge_std.im
-			);
+		     );
 
 	fftw_real mean_DE_dbg;
 	if(slabstart_y == 0) 
@@ -1317,7 +1317,7 @@ void pmforce_periodic_DE(void)
 	/* Do the FFT to get the potential */
 	rfftwnd_mpi(fft_inverse_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 	/* Note: The inverse FFT scales the data by PMGRID*PMGRID*PMGRID */
-	
+
 	/* Do the FFT of rhogrid_tot to get the total potential of the singly deconvolved dm + unconvolved de */
 	rfftwnd_mpi(fft_inverse_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
 
@@ -1591,7 +1591,7 @@ void pmforce_periodic_DE(void)
 
 	/* Free all but the dark energy arrays */
 	pm_init_periodic_free();
-	
+
 	/* Wait point for non-blocking exchange of rhogrid_tot and dPgrid slabs. */
 	if(nslab_x>0)
 		if(MPI_SUCCESS!=MPI_Waitall(2*(nslabs_to_send+4),comm_reqs,status_DE)){
