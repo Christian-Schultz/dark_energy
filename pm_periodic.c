@@ -2559,7 +2559,7 @@ void pm_stats(char* fname){
 	MPI_Allreduce(MPI_IN_PLACE,&max,1,FFTW_MPITYPE,MPI_MAX,MPI_COMM_WORLD);
 
 	double print_dummy;
-	if(slabstart_y==0){
+	if(slabstart_y==0 && PMTask){
 		print_dummy=mean_DM*All.BoxSize*All.BoxSize*All.BoxSize/(PMGRID*PMGRID*PMGRID);
 		printf("Background mass of dark matter in comoving mesh cell is: %e\n",print_dummy);
 		print_dummy*=All.Time*All.Time*All.Time;
