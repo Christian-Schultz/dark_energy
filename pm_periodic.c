@@ -71,6 +71,7 @@ void CIC(int*,int*);
 
 #ifdef DYNAMICAL_DE
 static short int first_DE_run=1;
+static short int PMTask=0;
 void DE_IC(void);  /* Dark energy initial conditions */
 void advance_DE(fftw_real); /* Function prototype for the routine responsible for advancing the dark energy density and velocity perturbations (rhodot and Udot) */
 
@@ -99,7 +100,7 @@ static fftw_real mean_DM, mean_DE;
  * and slabs 9 and 10 from the task(s) to its "right"). The extra slabs are used in the finite differencing of the different 
  * dark energy quantities */
 int comm_order(int nslabs){
-	if(nslabs>0){
+	if(PMTask){
 		int index=LOGICAL_INDEX(slabstart_x-2);
 		slabs_to_recv[0]=index;
 		int my_task_ll=slab_to_task[index];
@@ -225,7 +226,7 @@ void DE_allocate(int nx){
 	}
 }
 
-void PM_cleanup(int nx){ /* Like free_memory(), this is not actually called by the program */
+void PM_cleanup( ){ /* Like free_memory(), this is not actually called by the program */
 	free(rhogrid_DE_expanded);
 	free(ugrid_DE_expanded);
 	free(dPgrid);
@@ -290,6 +291,8 @@ void pm_init_periodic(void)
 	MPI_Allreduce(&fftsize, &maxfftsize, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 #ifdef DYNAMICAL_DE
 	/* Allocate extra memory for the dark energy part and establish communication order */
+	if(nslab_x>0)
+		PMTask=1;
 	nslabs_to_send=comm_order(nslab_x);
 #endif
 }
@@ -297,7 +300,7 @@ void pm_init_periodic(void)
 #ifdef DYNAMICAL_DE
 void DE_periodic_allocate(void){
 	/* Expand with 4 slabs to store communication data */
-	if(nslab_x>0){
+	if(PMTask){
 #ifdef DEBUG
 		assert(fftsize==nslab_x*PMGRID2*PMGRID);
 #endif
@@ -1000,7 +1003,7 @@ void pmforce_periodic_DE(void)
 	MPI_Request *comm_reqs=NULL;
 	MPI_Status *status_DE=NULL;
 	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
-	if(nslab_x>0){
+	if(PMTask){
 		comm_reqs=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Request)); /* Received/not received status of non-blocking messages (communication handles) */
 		status_DE=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Status)); /* The MPI_Status return values of the communication */
 
@@ -1042,7 +1045,7 @@ void pmforce_periodic_DE(void)
 
 	/* Wait point for non-blocking exchange of DE slabs, only continue when all rhogrid_DE and ugrid_DE slabs have been exchanged.
 	 * Still need to calculate and exchange rhogrid_tot for the total potential and dPgrid for the pressure pertubation */
-	if(nslab_x>0){
+	if(PMTask){
 		if(MPI_SUCCESS!=MPI_Waitall(2*(nslabs_to_send+4),comm_reqs,status_DE)){
 			mpi_fprintf(stderr,"Error in MPI_Waitall (%s: %i)\n",__FILE__,__LINE__);
 			endrun(1);
@@ -1134,7 +1137,7 @@ void pmforce_periodic_DE(void)
 	rfftwnd_mpi(fft_forward_plan, 1, dPgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
 
 #ifdef DEBUG
-	if(slabstart_y==0){
+	if(slabstart_y==0 && PMTask){
 		double tmp=(double) fft_of_rhogrid[0].re/(PMGRID*PMGRID*PMGRID);
 		printf("Dark matter mean: %e (mean rho: %e)\n", tmp, tmp/vol_fac);
 		tmp=fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID);
@@ -1145,7 +1148,7 @@ void pmforce_periodic_DE(void)
 #endif
 
 	/* Enforce mean of pressure perturbation to vanish in case divergence U doesn't */
-	if(slabstart_y == 0)
+	if(slabstart_y == 0 && PMTask)
 		fft_of_dPgrid[0].re = fft_of_dPgrid[0].im = 0.0;
 
 	/* Dark energy pressure conversion factors */
@@ -1297,7 +1300,7 @@ void pmforce_periodic_DE(void)
 		     );
 
 	fftw_real mean_DE_dbg;
-	if(slabstart_y == 0) 
+	if(slabstart_y == 0 && PMTask) 
 		mean_DE_dbg=fft_of_rhogrid_tot[0].re/vol_fac/(PMGRID*PMGRID*PMGRID);
 
 	MPI_Bcast(&mean_DE_dbg,1,FFTW_MPITYPE,0,MPI_COMM_WORLD);
@@ -1308,10 +1311,10 @@ void pmforce_periodic_DE(void)
 
 #endif
 	/* Subtract mean */
-	if(slabstart_y == 0) 
+	if(slabstart_y == 0 && PMTask) 
 		fft_of_rhogrid_tot[0].re = fft_of_rhogrid_tot[0].im = 0.0;
 
-	if(slabstart_y == 0) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
+	if(slabstart_y == 0 && PMTask) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
 		fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
 
 	/* Do the FFT to get the potential */
@@ -1478,7 +1481,7 @@ void pmforce_periodic_DE(void)
 	 * The following sends more data than what is actually neccesary, however no moving of data is needed.
 	 * Also send the pressure grid containing the pressure perturbation.
 	 */
-	if(nslab_x>0){
+	if(PMTask){
 		comm_reqs=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Request)); /* Received/not received status of non-blocking messages (communication handles) */
 		status_DE=malloc(2*(nslabs_to_send+4)*sizeof(MPI_Status)); /* The MPI_Status return values of the communication */
 
@@ -1593,7 +1596,7 @@ void pmforce_periodic_DE(void)
 	pm_init_periodic_free();
 
 	/* Wait point for non-blocking exchange of rhogrid_tot and dPgrid slabs. */
-	if(nslab_x>0)
+	if(PMTask)
 		if(MPI_SUCCESS!=MPI_Waitall(2*(nslabs_to_send+4),comm_reqs,status_DE)){
 			mpi_fprintf(stderr,"Error in MPI_Waitall (%s: %i)\n",__FILE__,__LINE__);
 			endrun(1);
@@ -1624,7 +1627,7 @@ void pmforce_periodic_DE(void)
 #endif
 	master_printf("Next PM timestep: %f, da=%e\n",next_timestep,next_timestep-All.Time);
 
-	if(nslab_x>0)
+	if(PMTask)
 		advance_DE(next_timestep-All.Time);
 	MPI_Barrier(MPI_COMM_WORLD);
 	master_printf("Done with the dark energy PM contribution\n");
@@ -2628,7 +2631,7 @@ void pm_stats(char* fname){
 
 
 void write_dm_grid(char* fname_DM){
-	if(nslab_x>0){
+	if(PMTask){
 		int i,j,k,npts;
 		npts=nslab_x*PMGRID*PMGRID;
 		float *slabs=my_malloc(npts*sizeof(float));
@@ -2652,7 +2655,7 @@ void write_dm_grid(char* fname_DM){
 }
 
 void write_de_grid(char* fname_DE){
-	if(nslab_x>0){
+	if(PMTask){
 		int i,npts;
 		npts=nslab_x*PMGRID*PMGRID;
 		float *slabs=my_malloc(npts*sizeof(float));
@@ -2672,7 +2675,7 @@ void write_de_grid(char* fname_DE){
 }
 
 void write_U_grid(char* fname_U){
-	if(nslab_x>0){
+	if(PMTask){
 		int i,j,npts;
 		npts=3*nslab_x*PMGRID*PMGRID;
 		float (*slabs)[3]=my_malloc(npts*sizeof(float));
