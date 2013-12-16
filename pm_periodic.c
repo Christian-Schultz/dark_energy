@@ -49,6 +49,7 @@
 #ifdef DEBUG
 #define SHOUT(x) do{if(x) mpi_printf("SHOUT: !(" #x ")\n");} while(0)
 void pm_stats(char *);
+#define FILELINE do{if(x) master_printf("At %s:%i\n",__FILE__,__LINE__);} while(0)
 #endif
 
 static rfftwnd_mpi_plan fft_forward_plan, fft_inverse_plan;
@@ -935,6 +936,8 @@ void pmforce_periodic_DE(void)
 	char statname[MAXLEN_FILENAME];
 
 	double fac_FD, temp; /* Merge temp with fftw_real divU */
+	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;
+	const double H=All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
 
 	if(ThisTask == 0)
 	{
@@ -991,8 +994,10 @@ void pmforce_periodic_DE(void)
 		temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 		temp=sqrt(temp/(3*(1+All.DarkEnergyW)*(temp-All.DarkEnergyW)));
 		master_printf("Dark energy sound speed: %f, dark energy equation of state: %f\n"
+				"Sound horizon (units of box size): %e\n"
 				"Dark energy gauge transformation important for a< %e (z > %e)\n"				
 				,All.DarkEnergySoundSpeed,All.DarkEnergyW,
+				All.DarkEnergySoundSpeed*lightspeed/(All.Time*H)/All.BoxSize,
 				temp,1/temp-1
 			     );
 		DE_allocate(nslab_x);
@@ -1151,9 +1156,10 @@ void pmforce_periodic_DE(void)
 	if(slabstart_y == 0 && PMTask)
 		fft_of_dPgrid[0].re = fft_of_dPgrid[0].im = 0.0;
 
+#ifdef DEBUG
+	MPI_Barrier(MPI_COMM_WORLD);
+#endif
 	/* Dark energy pressure conversion factors */
-	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;
-	const double H=All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
 	const double P_prefactor=3*All.Time*H*(1+All.DarkEnergyW)*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW)*mean_DE/(lightspeed*lightspeed);
 
 	/* Dummy variable to store rho */
@@ -1172,8 +1178,6 @@ void pmforce_periodic_DE(void)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
-				k2_actual=x*x+y*y+z*z;
-				k2_actual*=k2_conv;
 
 				if(x > PMGRID / 2)
 					kx = x - PMGRID;
@@ -1190,7 +1194,7 @@ void pmforce_periodic_DE(void)
 
 				k2 = kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
 
-				/* k2=0 iff x=y=z=0 iff k2_actual=0, hence k2=0 iff k2_actual=0 */
+				k2_actual=k2_conv*k2;
 				if(k2 > 0)
 				{
 					/* do smoothing and deconvolution */
@@ -1220,13 +1224,11 @@ void pmforce_periodic_DE(void)
 					fft_of_rhogrid[ip].im *= ff*ff;
 
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
-					fft_of_dPgrid[ip].re=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re/vol_fac
-						+P_prefactor*fft_of_dPgrid[ip].re/k2_actual;
-					fft_of_dPgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im/vol_fac
-						+P_prefactor*fft_of_dPgrid[ip].im/k2_actual;
+					fft_of_dPgrid[ip].re=P_prefactor*fft_of_dPgrid[ip].re/k2_actual;
+					fft_of_dPgrid[ip].im=P_prefactor*fft_of_dPgrid[ip].im/k2_actual;
 #ifdef DEBUG
 					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re/vol_fac;
-					divU=P_prefactor*fft_of_dPgrid[ip].re/k2_actual;
+					divU=fft_of_dPgrid[ip].re;
 					if(fabs(divU)>fabs(temp)){
 						++bad_points;
 						trigger=1;
@@ -1235,7 +1237,7 @@ void pmforce_periodic_DE(void)
 					P_gauge_std.re+=pow(divU,2);
 
 					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im/vol_fac;
-					divU=P_prefactor*fft_of_dPgrid[ip].im/k2_actual;
+					divU=fft_of_dPgrid[ip].im;
 					if(trigger==0 && fabs(divU)>fabs(temp))
 						++bad_points;
 					P_std.im      +=pow(temp,2);
@@ -1243,7 +1245,8 @@ void pmforce_periodic_DE(void)
 
 					trigger=0;
 #endif
-
+					fft_of_dPgrid[ip].re+=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re/vol_fac;
+					fft_of_dPgrid[ip].im+=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im/vol_fac;
 
 					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
 					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
@@ -1252,9 +1255,8 @@ void pmforce_periodic_DE(void)
 					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
 					 * to the dark energy density where cs is the sound speed
 					 * that relates the pressure to its density */	
-					fft_of_rhogrid_tot[ip].re +=  fft_of_dPgrid[ip].re;
-					fft_of_rhogrid_tot[ip].im +=  fft_of_dPgrid[ip].im;
-
+					fft_of_rhogrid_tot[ip].re += fft_of_dPgrid[ip].re;
+					fft_of_rhogrid_tot[ip].im += fft_of_dPgrid[ip].im;
 					/* Store dark energy part of Poisson equation */
 					rho_temp.re=fft_of_rhogrid_tot[ip].re;
 					rho_temp.im=fft_of_rhogrid_tot[ip].im;
@@ -1291,23 +1293,14 @@ void pmforce_periodic_DE(void)
 	P_gauge_std.im=sqrt(P_gauge_std.im);
 
 	master_printf("cs^2: %e, velocity unit prefactor: %e\n"
-			"P_std.re: %e, P_std.im: %e\n"
-			"P_gauge_std.re: %e, P_gauge_std.im: %e\n",
+			"P_std.re/P_gauge_std.re: %e, P_std.im/P_gauge_std.im: %e\n",
 			pow(All.DarkEnergySoundSpeed,2),
 			3*All.Time*(1+All.DarkEnergyW)*(pow(All.DarkEnergySoundSpeed,2)-All.DarkEnergyW),
-			P_std.re, P_std.im,
-			P_gauge_std.re, P_gauge_std.im
+			P_std.re/P_gauge_std.re, P_std.im/P_gauge_std.im
 		     );
 
-	fftw_real mean_DE_dbg;
-	if(slabstart_y == 0 && PMTask) 
-		mean_DE_dbg=fft_of_rhogrid_tot[0].re/vol_fac/(PMGRID*PMGRID*PMGRID);
-
-	MPI_Bcast(&mean_DE_dbg,1,FFTW_MPITYPE,0,MPI_COMM_WORLD);
-	master_printf("Mean_DE_dbg/mean_DE: %e\n",mean_DE_dbg/mean_DE);
-
 	MPI_Allreduce(MPI_IN_PLACE,&bad_points,1,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
-	master_printf("FFTW: Number of gauge term bad points: %i (%e of total)\n",bad_points,bad_points/(1.0*PMGRID*PMGRID*PMGRID));
+	master_printf("Number of gauge term bad points: %i (%e of total)\n",bad_points,bad_points/(1.0*PMGRID*PMGRID*PMGRID));
 
 #endif
 	/* Subtract mean */
@@ -2447,6 +2440,7 @@ void advance_DE(const fftw_real da){
 				if(new_rhogrid_DE[index]<0){
 					new_rhogrid_DE[index]=0;
 				}
+
 				U_sq=0;
 #endif
 				for( dim=0 ;dim<3  ; ++dim )
@@ -2565,7 +2559,7 @@ void pm_stats(char* fname){
 		print_dummy*=All.Time*All.Time*All.Time;
 		printf("Background mass of dark matter in physical mesh cell: " 
 				"%e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n"
-				"Ratio of mean to cosmo term: %e\n",
+				"Dark matter ratio of mean to cosmo term: %e\n",
 				mean,print_dummy,delta_mean,std_dev,min,max,mean/print_dummy);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\t%e\t",All.Time,mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
@@ -2619,7 +2613,7 @@ void pm_stats(char* fname){
 		print_dummy*=All.Time*All.Time*All.Time;
 		printf("Background mass of dark energy in physical mesh cell: "
 				"%e (cosmo term: %e, delta_mean: %e, std dev: %e, min: %e, max: %e)\n"
-				"Ratio of mean to cosmo term: %e\n",
+				"Dark energy ratio of mean to cosmo term: %e\n",
 				mean,print_dummy,delta_mean,std_dev,min,max,mean/print_dummy);
 		sprintf(buf,"%e\t%e\t%e\t%e\t%e\n",mean,delta_mean,std_dev,min,max);
 		strcat(out,buf);
