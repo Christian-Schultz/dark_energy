@@ -17,6 +17,14 @@ void find_dt_displacement_constraint(double); /* Not modified, but function prot
 
 #ifndef DYNAMICAL_DE
 #undef OUTPUT_DE
+#else
+
+#ifdef NONLINEAR_DE
+void pmforce_periodic_DE_nonlinear(void);
+#else
+void pmforce_periodic_DE_linear(void);
+#endif
+
 #endif
 
 #ifdef OUTPUT_DE

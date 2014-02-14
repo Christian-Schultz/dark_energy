@@ -74,7 +74,11 @@ void CIC(int*,int*);
 static short int first_DE_run=1;
 static short int PMTask=0;
 void DE_IC(void);  /* Dark energy initial conditions */
-void advance_DE(fftw_real); /* Function prototype for the routine responsible for advancing the dark energy density and velocity perturbations (rhodot and Udot) */
+#ifdef NONLINEAR_DE
+void advance_DE_nonlinear(fftw_real); /* Function prototype for the routine responsible for advancing the nonlinear dark energy density and velocity perturbations*/
+#else
+void advance_DE_linear(fftw_real);    /* Function prototype for the routine responsible for advancing the linear dark energy density and velocity perturbations */
+#endif
 
 void write_header(FILE *);
 void write_dm_grid(char *);
@@ -89,10 +93,14 @@ static int nslabs_to_send;  /* How many slabs does this task need to send? Norma
 
 /* The dark energy arrays come in 2 forms: An array corresponding to the actual slabs of the task, and an expanded array
  * with space for 4 extra slabs (2 in each end) used for finite differencing */
+#ifdef NONLINEAR_DE
 static fftw_real *rhogrid_tot, *rhogrid_tot_expanded, *dPgrid_fftw,*dPgrid_fftw_expanded; /* fftw-format arrays. Note that the P arrays are P/c^2 */
 static fftw_real *rhogrid_DE_expanded, (*ugrid_DE_expanded)[3]; /* Normal format arrays */
 static fftw_real *rhogrid_DE, (*ugrid_DE)[3], *dPgrid; /* Normal format arrays */
 static fftw_complex *fft_of_rhogrid_tot, *fft_of_dPgrid; /* fft of the total dark energy and dark matter density. Also the fft of the velocity divergence (which will become the pressure)*/
+#else
+static fftw_complex *rhogrid_tot, *rhogrid_DE, *ugrid_DE;; /* fftw-complex format arrays. Ugrid is divU*/
+#endif
 
 /* Mean densities of dark matter and dark energy */
 static fftw_real mean_DM, mean_DE;
@@ -204,33 +212,47 @@ int comm_order(int nslabs){
 /* One-time allocation of the dark energy arrays */
 void DE_allocate(int nx){
 
-	master_printf("Code compiled with DYNAMICAL_DE, setting up dark energy environment\n");
 
 	if(nx>0){
 		/* Expand the arrays with 4 extra slabs to store communication */
+#ifdef NONLINEAR_DE
+		master_printf("Code compiled with DYNAMICAL_DE, setting up non-linear dark energy environment\n");
 		rhogrid_DE_expanded=my_malloc((4+nx)*PMGRID*PMGRID*sizeof(fftw_real));
 		ugrid_DE_expanded=my_malloc(3*(4+nx)*PMGRID*PMGRID*sizeof(fftw_real));
 		dPgrid=my_malloc(nx*PMGRID*PMGRID*sizeof(fftw_real));
-
+		const unsigned long int size=(4*(4+nx)+nx)*PMGRID*PMGRID*sizeof(fftw_real);
 		/* Arrays corresponding to the actual slabs of this task */
 		rhogrid_DE=rhogrid_DE_expanded+2*PMGRID*PMGRID;
 		ugrid_DE=ugrid_DE_expanded+2*PMGRID*PMGRID;
-		const unsigned long int size=(4*(4+nx)+nx)*PMGRID*PMGRID*sizeof(fftw_real);
+#else
+		master_printf("Code compiled with DYNAMICAL_DE, setting up linear dark energy environment\n");
+		rhogrid_DE=my_malloc(fftsize*sizeof(fftw_real));
+		ugrid_DE=my_malloc(fftsize*sizeof(fftw_real));
+		const unsigned long int size=2*fftsize*sizeof(fftw_real);
+#endif
+
 		mpi_printf("Allocated %lu bytes (%lu MB) for DE arrays\n",size,size/(1024*1024));
 	}
 	else{
+#ifdef NONLINEAR_DE
 		rhogrid_DE_expanded=NULL;
-		rhogrid_DE=NULL;
 		ugrid_DE_expanded=NULL;
-		ugrid_DE=NULL;
 		dPgrid=NULL;
+#endif
+		rhogrid_DE=NULL;
+		ugrid_DE=NULL;
 	}
 }
 
 void PM_cleanup( ){ /* Like free_memory(), this is not actually called by the program */
+#ifdef NONLINEAR_DE
 	free(rhogrid_DE_expanded);
 	free(ugrid_DE_expanded);
 	free(dPgrid);
+#else
+	free(rhogrid_DE);
+	free(ugrid_DE);
+#endif
 	free(slabs_per_task);
 	free(first_slab_of_task);
 	rfftwnd_mpi_destroy_plan(fft_forward_plan);
@@ -305,27 +327,37 @@ void DE_periodic_allocate(void){
 #ifdef DEBUG
 		assert(fftsize==nslab_x*PMGRID2*PMGRID);
 #endif
-		rhogrid_tot_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
-		dPgrid_fftw_expanded=my_malloc((fftsize+4*PMGRID2*PMGRID) * sizeof(fftw_real));
 
+		unsigned int size=0;
+#ifdef NONLINEAR_DE
+		size=(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real);
+		rhogrid_tot_expanded=my_malloc(size);
 		/* rhogrid_tot is only the local array, rhogrid_tot_expanded is the local array and the 2 slabs before and 2 after */
 		rhogrid_tot=& rhogrid_tot_expanded[INDMAP(2,0,0)];
-		dPgrid_fftw=& dPgrid_fftw_expanded[INDMAP(2,0,0)];
-
 		fft_of_rhogrid_tot = (fftw_complex *) & rhogrid_tot[0];
+		dPgrid_fftw_expanded=my_malloc(size);
+		dPgrid_fftw=& dPgrid_fftw_expanded[INDMAP(2,0,0)];
 		fft_of_dPgrid = (fftw_complex *) & dPgrid_fftw[0];
+		size=size*2;
+#else
+		size=(fftsize*sizeof(fftw_real));
+		rhogrid_tot=my_malloc(size);
+#endif
+		if(first_DE_run){
+			master_printf("PM force with dark energy toggled (time=%f). Allocated %u bytes (%u MB) for dark energy temporary storage\n",All.Time,size,size/(1024*1024));
+		}
 	}
 	else
 	{
-		rhogrid_tot_expanded=rhogrid_tot=NULL;
-		dPgrid_fftw_expanded=dPgrid_fftw=NULL;
+		rhogrid_tot=NULL;
+#ifdef NONLINEAR_DE
 		fft_of_rhogrid_tot=NULL;
+		rhogrid_tot_expanded=NULL;
+		dPgrid_fftw_expanded=dPgrid_fftw=NULL;
 		fft_of_dPgrid=NULL;
+#endif
 	}
-	if(first_DE_run){
-		const unsigned int size=2*(fftsize+4*PMGRID2*PMGRID)*sizeof(fftw_real);
-		master_printf("PM force with dark energy toggled (time=%f). Allocated %u bytes (%u MB) for dark energy temporary storage\n",All.Time,size,size/(1024*1024));
-	}
+
 }
 #endif
 
@@ -389,13 +421,17 @@ void pm_init_periodic_free(void)
 #ifdef DYNAMICAL_DE
 /* Free dark energy arrays */
 void free_dark_energy(void){
+#ifdef NONLINEAR_DE
 	free(rhogrid_tot_expanded);
 	rhogrid_tot_expanded=NULL;
 	rhogrid_tot=NULL;
-
 	free(dPgrid_fftw_expanded);
 	dPgrid_fftw_expanded=NULL;
 	dPgrid_fftw=NULL;
+#else
+	free(rhogrid_tot);
+	rhogrid_tot=NULL;
+#endif
 }
 #endif
 
@@ -918,8 +954,9 @@ void pmforce_periodic(void)
 
 /* pmforce in a dynamical dark energy cosmology */
 #ifdef DYNAMICAL_DE
+#ifdef NONLINEAR_DE
 /* TODO: Fix code when running on a single process (probably in comm order) */
-void pmforce_periodic_DE(void)
+void pmforce_periodic_DE_nonlinear(void)
 {
 	double k2, kx, ky, kz, smth;
 	double dx, dy, dz;
@@ -1037,7 +1074,7 @@ void pmforce_periodic_DE(void)
 		{
 			slab=LOGICAL_INDEX(slabs_to_recv[i]-slabstart_x+2); /* Index minus start of local patch + 2 since the received patch starts at relative index -2  */
 			/* Receive ugrid slabs. Tagged with the absolute slab index */
-			MPI_Irecv(ugrid_DE_expanded+slab*PMGRID*PMGRID,3*PMGRID*PMGRID*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i]       ,MPI_COMM_WORLD,&comm_reqs[req_count++]);
+			MPI_Irecv(ugrid_DE_expanded+slab*PMGRID*PMGRID  ,3*PMGRID*PMGRID*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i]       ,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 			/* Receive rhogrid_DE slabs. Tagged with absolute slab index + PMGRID so as to not coincide with the ugrid tag */
 			MPI_Irecv(rhogrid_DE_expanded+slab*PMGRID*PMGRID,PMGRID*PMGRID*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 		}
@@ -1137,7 +1174,6 @@ void pmforce_periodic_DE(void)
 
 	/* Do the FFT of the dark energy density field (the dark energy density field has been converted to mass in rhogrid_tot) */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
-
 	/* Do the FFT of the divergence of U */
 	rfftwnd_mpi(fft_forward_plan, 1, dPgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
 
@@ -1147,32 +1183,29 @@ void pmforce_periodic_DE(void)
 		printf("Dark matter mean: %e (mean rho: %e)\n", tmp, tmp/vol_fac);
 		tmp=fft_of_rhogrid_tot[0].re/(PMGRID*PMGRID*PMGRID);
 		printf("Dark energy mean: %e (mean rho: %e)\n",tmp, tmp/vol_fac);
-		tmp=fft_of_dPgrid[0].re/(PMGRID*PMGRID*PMGRID);
-		printf("Dark energy pressure mean: %e\n",tmp);
 	}
 #endif
 
 	/* Enforce mean of pressure perturbation to vanish in case divergence U doesn't */
 	if(slabstart_y == 0 && PMTask)
 		fft_of_dPgrid[0].re = fft_of_dPgrid[0].im = 0.0;
-
-#ifdef DEBUG
-	MPI_Barrier(MPI_COMM_WORLD);
-#endif
 	/* Dark energy pressure conversion factors */
-	const double P_prefactor=3*All.Time*H*(1+All.DarkEnergyW)*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW)*mean_DE/(lightspeed*lightspeed);
-
-	/* Dummy variable to store rho */
-	fftw_complex rho_temp;
-	/* Conversion from integer k to comoving k. Needs additional 1/scalefactor to be physical k */
-	const double k2_conv=2*M_PI/(All.BoxSize)*2*M_PI/(All.BoxSize);
-	double k2_actual;
+	double pot_prefactor=-3*(1+All.DarkEnergyW)*mean_DE*H*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
+	const double dP_prefactor=pot_prefactor*(All.DarkEnergyW*All.DarkEnergyW-All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed);
+	pot_prefactor*=vol_fac;
 #ifdef DEBUG
-	fftw_complex P_std, P_gauge_std;
+		fftw_complex P_std, P_gauge_std;
 	P_std.re=P_std.im=P_gauge_std.re=P_gauge_std.im=0;
+#endif
+
+#ifdef DEBUG
 	int bad_points=0;
 	short trigger=0;
 #endif
+
+	/* Dummy variables to store rho */
+	fftw_complex rho_temp_DE, rho_temp_DM;
+	/* Conversion from integer k to comoving k. Needs additional 1/scalefactor to be physical k */
 	/* multiply with the Green's function for the potential, deconvolve */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -1194,7 +1227,7 @@ void pmforce_periodic_DE(void)
 
 				k2 = kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
 
-				k2_actual=k2_conv*k2;
+				smth = exp(-k2 * asmth2);
 				if(k2 > 0)
 				{
 					/* do smoothing and deconvolution */
@@ -1224,11 +1257,10 @@ void pmforce_periodic_DE(void)
 					fft_of_rhogrid[ip].im *= ff*ff;
 
 					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
-					fft_of_dPgrid[ip].re=P_prefactor*fft_of_dPgrid[ip].re/k2_actual;
-					fft_of_dPgrid[ip].im=P_prefactor*fft_of_dPgrid[ip].im/k2_actual;
 #ifdef DEBUG
-					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re/vol_fac;
-					divU=fft_of_dPgrid[ip].re;
+					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re;
+
+					divU=dP_prefactor*vol_fac*fft_of_dPgrid[ip].re/k2;
 					if(fabs(divU)>fabs(temp)){
 						++bad_points;
 						trigger=1;
@@ -1236,8 +1268,8 @@ void pmforce_periodic_DE(void)
 					P_std.re      +=pow(temp,2);
 					P_gauge_std.re+=pow(divU,2);
 
-					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im/vol_fac;
-					divU=fft_of_dPgrid[ip].im;
+					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im;
+					divU=dP_prefactor*vol_fac*fft_of_dPgrid[ip].im/k2;
 					if(trigger==0 && fabs(divU)>fabs(temp))
 						++bad_points;
 					P_std.im      +=pow(temp,2);
@@ -1245,39 +1277,34 @@ void pmforce_periodic_DE(void)
 
 					trigger=0;
 #endif
-					fft_of_dPgrid[ip].re+=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re/vol_fac;
-					fft_of_dPgrid[ip].im+=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im/vol_fac;
 
-					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
-					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
+					/* Add 3dP term from the Poisson equation with dark energy.*/
 
-					/* Add 3dP term from the Poisson equation with dark energy.
-					 * This corresponds to effectively adding an extra factor of 3*cs^2*rho_de 
-					 * to the dark energy density where cs is the sound speed
-					 * that relates the pressure to its density */	
-					fft_of_rhogrid_tot[ip].re += fft_of_dPgrid[ip].re;
-					fft_of_rhogrid_tot[ip].im += fft_of_dPgrid[ip].im;
-					/* Store dark energy part of Poisson equation */
-					rho_temp.re=fft_of_rhogrid_tot[ip].re;
-					rho_temp.im=fft_of_rhogrid_tot[ip].im;
-
-					fft_of_rhogrid_tot[ip].re += fft_of_rhogrid[ip].re;
-					fft_of_rhogrid_tot[ip].im += fft_of_rhogrid[ip].im;
-					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
-					 * This means that fft_of_rhogrid_tot now contains the full dark matter + dark energy potential */
-
-					/* Multiply with the Green's function (constants will be corrected by potfac in advance_DE. Note the difference between the physical k and the integer k used here as mentioned above) */
-					fft_of_rhogrid_tot[ip].re *= -1.0/k2;
-					fft_of_rhogrid_tot[ip].im *= -1.0/k2;
-
-					smth = -exp(-k2 * asmth2) / k2; /* -4 M_PI G/k2 is the Green's function for the Poisson equation in physical coordinates */
+					/* Store dark matter part */
+					rho_temp_DM=fft_of_rhogrid[ip];
+					/* Store dark energy part */
+					rho_temp_DE=fft_of_rhogrid_tot[ip];
+					
+					fft_of_rhogrid_tot[ip].re=fft_of_rhogrid_tot[ip].re+pot_prefactor*fft_of_dPgrid[ip].re/k2;
+					fft_of_rhogrid_tot[ip].im=fft_of_rhogrid_tot[ip].im+pot_prefactor*fft_of_dPgrid[ip].im/k2;
+										
 					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). 
 					 * Multiply with the Green's function and smoothing kernel. 
 					 * Only the dark matter needs to be long range smoothed, dark energy is applicable on grid scale*/
-					fft_of_rhogrid[ip].re = ff*ff*(smth*fft_of_rhogrid[ip].re-rho_temp.re/k2);
-					fft_of_rhogrid[ip].im = ff*ff*(smth*fft_of_rhogrid[ip].im-rho_temp.im/k2);
+					fft_of_rhogrid[ip].re = -ff*ff*(smth*fft_of_rhogrid[ip].re+fft_of_rhogrid_tot[ip].re)/k2;
+					fft_of_rhogrid[ip].im = -ff*ff*(smth*fft_of_rhogrid[ip].im+fft_of_rhogrid_tot[ip].im)/k2;
 					/* fft_of_rhogrid now contains FFT(rhogrid)*DC*DC+FFT(rhogrid_DE)*DC where DC is the deconvolution kernel (the Green's function and smoothing kernel have also been applied) */
 					/* end deconvolution. Note that the pressure term in the Poisson equation has been added above by modifying the dark energy density */
+					
+					fft_of_rhogrid_tot[ip].re = -(rho_temp_DM.re+fft_of_rhogrid_tot[ip].re)/k2;
+					fft_of_rhogrid_tot[ip].im = -(rho_temp_DM.im+fft_of_rhogrid_tot[ip].im)/k2;
+					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
+					 * This means that fft_of_rhogrid_tot now contains the full dark matter + dark energy potential (except for a multiplicative constant that will be fixed in advance_DE_nonlinear) */
+
+					fft_of_dPgrid[ip].re=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.re+dP_prefactor*fft_of_dPgrid[ip].re/k2;
+					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
+					fft_of_dPgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.im+dP_prefactor*fft_of_dPgrid[ip].im/k2;
+					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
 				}
 
 			}
@@ -1621,7 +1648,7 @@ void pmforce_periodic_DE(void)
 	master_printf("Next PM timestep: %f, da=%e\n",next_timestep,next_timestep-All.Time);
 
 	if(PMTask)
-		advance_DE(next_timestep-All.Time);
+		advance_DE_nonlinear(next_timestep-All.Time);
 	MPI_Barrier(MPI_COMM_WORLD);
 	master_printf("Done with the dark energy PM contribution\n");
 
@@ -1640,6 +1667,486 @@ void pmforce_periodic_DE(void)
 		fflush(stdout);
 	}
 }
+#else
+/* Linear dark energy */
+void pmforce_periodic_DE_linear(void)
+{
+	double k2, kx, ky, kz, smth;
+	double dx, dy, dz;
+	double fx, fy, fz, ff;
+	double asmth2, fac, acc_dim;
+	int i, j, slab, level, sendTask, recvTask;
+	int x, y, z, xl, yl, zl, xr, yr, zr, xll, yll, zll, xrr, yrr, zrr, ip, dim;
+	int slab_x, slab_y, slab_z;
+	int slab_xx, slab_yy, slab_zz;
+	int meshmin[3], meshmax[3], sendmin, sendmax, recvmin, recvmax;
+	int rep, ncont, cont_sendmin[2], cont_sendmax[2], cont_recvmin[2], cont_recvmax[2];
+	int dimx, dimy, dimz, recv_dimx, recv_dimy, recv_dimz;
+	MPI_Status status;
+	char statname[MAXLEN_FILENAME];
+
+	double fac_FD, temp; /* Merge temp with fftw_real divU */
+	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;
+	const double H=All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
+
+	if(ThisTask == 0)
+	{
+		printf("Starting periodic PM calculation with dynamical dark energy.\n");
+		fflush(stdout);
+	}
+
+	mean_DM=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark matter density in the universe */
+	mean_DE=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0*(1+All.DarkEnergyW)); /* Mean dark energy density in the universe */
+
+	force_treefree();
+
+	asmth2 = (2 * M_PI) * All.Asmth[0] / All.BoxSize; /* Default value for Asmth is 1.25, can be changed in the Makefile */
+	asmth2 *= asmth2;
+
+	fac = All.G / (M_PI * All.BoxSize);	/* to get potential */
+	fac_FD = 1 / (2 * All.BoxSize / PMGRID);	/* for finite differencing */
+	fac *=fac_FD;
+
+	/* first, establish the extension of the local patch in the PMGRID  */
+
+	for(j = 0; j < 3; j++)
+	{
+		meshmin[j] = PMGRID;
+		meshmax[j] = 0;
+	}
+
+	for(i = 0; i < NumPart; i++)
+	{
+		for(j = 0; j < 3; j++)
+		{
+			slab = to_slab_fac * P[i].Pos[j];
+			if(slab >= PMGRID)
+				slab = PMGRID - 1;
+
+			if(slab < meshmin[j])
+				meshmin[j] = slab;
+
+			if(slab > meshmax[j])
+				meshmax[j] = slab;
+		}
+	}
+
+	MPI_Allgather(meshmin, 3, MPI_INT, meshmin_list, 3, MPI_INT, MPI_COMM_WORLD);
+	MPI_Allgather(meshmax, 3, MPI_INT, meshmax_list, 3, MPI_INT, MPI_COMM_WORLD);
+
+	dimx = meshmax[0] - meshmin[0] + 2;
+	dimy = meshmax[1] - meshmin[1] + 2;
+	dimz = meshmax[2] - meshmin[2] + 2;
+
+	pm_init_periodic_allocate((dimx + 4) * (dimy + 4) * (dimz + 4));
+	DE_periodic_allocate();
+	if(first_DE_run){
+		temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
+		temp=sqrt(temp/(3*(1+All.DarkEnergyW)*(temp-All.DarkEnergyW)));
+		master_printf("Dark energy sound speed: %f, dark energy equation of state: %f\n"
+				"Sound horizon (units of box size): %e\n"
+				"Dark energy gauge transformation important for a< %e (z > %e)\n"				
+				,All.DarkEnergySoundSpeed,All.DarkEnergyW,
+				All.DarkEnergySoundSpeed*lightspeed/(All.Time*H)/All.BoxSize,
+				temp,1/temp-1
+			     );
+		DE_allocate(nslab_x);
+		DE_IC();
+	}
+	/* Non-blocking send/receive statements for rhogrid_DE and ugrid_DE */
+
+	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
+	
+	/* Cloud-in-Cell interpolation. Moved to its own function for readability.
+	 * Assigns mass to rhogrid while the dark energy grids are being exchanged. */
+	CIC(meshmin,meshmax);
+
+
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x = 0; x < PMGRID; x++)
+			for(z = 0; z < PMGRID / 2 + 1; z++)
+			{
+				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+				/* Convert dimensionless delta to mass */
+				rhogrid_tot[ip].re=rhogrid_DE[ip].re*mean_DE*vol_fac;
+				rhogrid_tot[ip].im=rhogrid_DE[ip].im*mean_DE*vol_fac;
+			}
+
+	/* Do the FFT of the dark matter density field */
+	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
+
+	double pot_prefactor=-3*(1+All.DarkEnergyW)*mean_DE*H*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
+	pot_prefactor*=vol_fac;
+
+	/* Dummy variable to store rho */
+	fftw_complex rho_temp_DM, rho_temp_DE;
+
+	/* multiply with the Green's function for the potential, deconvolve */
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x = 0; x < PMGRID; x++)
+			for(z = 0; z < PMGRID / 2 + 1; z++)
+			{
+
+				if(x > PMGRID / 2)
+					kx = x - PMGRID;
+				else
+					kx = x;
+				if(y > PMGRID / 2)
+					ky = y - PMGRID;
+				else
+					ky = y;
+				if(z > PMGRID / 2)
+					kz = z - PMGRID;
+				else
+					kz = z;
+
+				k2 = kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
+				smth = exp(-k2 * asmth2);
+
+				if(k2 > 0)
+				{
+					/* do smoothing and deconvolution */
+					/* Note: Actual deconvolution is sinc(k_phys BoxSize/(2*PMGRID)), but in the code k = k_phys/(2*M_MPI)*BoxSize  */
+					fx = fy = fz = 1;
+					if(kx != 0)
+					{
+						fx = (M_PI * kx) / PMGRID;
+						fx = sin(fx) / fx;
+					}
+					if(ky != 0)
+					{
+						fy = (M_PI * ky) / PMGRID;
+						fy = sin(fy) / fy;
+					}
+					if(kz != 0)
+					{
+						fz = (M_PI * kz) / PMGRID;
+						fz = sin(fz) / fz;
+					}
+					ff = 1 / (fx * fy * fz);
+
+					ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+
+
+					fft_of_rhogrid[ip].re *= ff*ff;
+					fft_of_rhogrid[ip].im *= ff*ff;
+					/* Have now done one deconvolution of the dark matter potential (corresponding to the CIC from the particles to grid) */
+
+					rho_temp_DM=fft_of_rhogrid[ip];
+					rho_temp_DE=rhogrid_tot[ip];
+
+					rhogrid_tot[ip].re=rhogrid_tot[ip].re+pot_prefactor*ugrid_DE[ip].re/k2;
+					rhogrid_tot[ip].im=rhogrid_tot[ip].im+pot_prefactor*ugrid_DE[ip].im/k2;
+
+					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). 
+					 * Multiply with the Green's function and smoothing kernel. 
+					 * Only the dark matter needs to be long range smoothed, dark energy is applicable on grid scale*/
+					fft_of_rhogrid[ip].re = -ff*ff*(smth*rho_temp_DM.re+rhogrid_tot[ip].re)/k2;
+					fft_of_rhogrid[ip].im = -ff*ff*(smth*rho_temp_DM.im+rhogrid_tot[ip].im)/k2;
+					/* fft_of_rhogrid now contains FFT(rhogrid)*DC*DC+FFT(rhogrid_DE)*DC where DC is the deconvolution kernel (the Green's function and smoothing kernel have also been applied) */
+
+					rhogrid_tot[ip].re = -(rho_temp_DM.re+rhogrid_tot[ip].re)/k2;
+					rhogrid_tot[ip].im = -(rho_temp_DM.im+rhogrid_tot[ip].im)/k2;
+					/* rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
+					 * This means that fft_of_rhogrid_tot now contains the full dark matter + dark energy potential */
+
+
+					/* end deconvolution. Note that the pressure term in the Poisson equation has been added above by modifying the dark energy density */
+				}
+
+			}
+	/* The rhogrid_tot potential array isn't needed and some memory could be saved by keeping everything in the rhogrid array */
+
+	/* Subtract mean */
+	if(slabstart_y == 0 && PMTask) 
+		rhogrid_tot[0].re = rhogrid_tot[0].im = 0.0;
+
+	if(slabstart_y == 0 && PMTask) /* This sets the mean to zero, meaning that we get the relative density delta_rho (since the k=0 part is the constant contribution) */
+		fft_of_rhogrid[0].re = fft_of_rhogrid[0].im = 0.0;
+
+	/* Do the FFT to get the potential */
+	rfftwnd_mpi(fft_inverse_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
+	/* Note: The inverse FFT scales the data by PMGRID*PMGRID*PMGRID */
+
+	/* Now rhogrid holds the potential, rhogrid_tot holds the k-space total potential (except for a factor G/(pi*BoxSize*a) */
+	/* construct the potential for the local patch */
+
+	dimx = meshmax[0] - meshmin[0] + 6;
+	dimy = meshmax[1] - meshmin[1] + 6;
+	dimz = meshmax[2] - meshmin[2] + 6;
+
+	for(level = 0; level < (1 << PTask); level++)	/* note: for level=0, target is the same task */
+	{
+		sendTask = ThisTask;
+		recvTask = ThisTask ^ level;
+
+		if(recvTask < NTask)
+		{
+
+			/* check how much we have to send */
+			sendmin = 2 * PMGRID;
+			sendmax = -PMGRID;
+			for(slab_x = meshmin_list[3 * recvTask] - 2; slab_x < meshmax_list[3 * recvTask] + 4; slab_x++)
+				if(slab_to_task[(slab_x + PMGRID) % PMGRID] == sendTask)
+				{
+					if(slab_x < sendmin)
+						sendmin = slab_x;
+					if(slab_x > sendmax)
+						sendmax = slab_x;
+				}
+			if(sendmax == -PMGRID)
+				sendmin = sendmax + 1;
+
+
+			/* check how much we have to receive */
+			recvmin = 2 * PMGRID;
+			recvmax = -PMGRID;
+			for(slab_x = meshmin[0] - 2; slab_x < meshmax[0] + 4; slab_x++)
+				if(slab_to_task[(slab_x + PMGRID) % PMGRID] == recvTask)
+				{
+					if(slab_x < recvmin)
+						recvmin = slab_x;
+					if(slab_x > recvmax)
+						recvmax = slab_x;
+				}
+			if(recvmax == -PMGRID)
+				recvmin = recvmax + 1;
+
+			if((recvmax - recvmin) >= 0 || (sendmax - sendmin) >= 0)	/* ok, we have a contribution to the slab */
+			{
+				recv_dimx = meshmax_list[3 * recvTask + 0] - meshmin_list[3 * recvTask + 0] + 6;
+				recv_dimy = meshmax_list[3 * recvTask + 1] - meshmin_list[3 * recvTask + 1] + 6;
+				recv_dimz = meshmax_list[3 * recvTask + 2] - meshmin_list[3 * recvTask + 2] + 6;
+
+				ncont = 1;
+				cont_sendmin[0] = sendmin;
+				cont_sendmax[0] = sendmax;
+				cont_sendmin[1] = sendmax + 1;
+				cont_sendmax[1] = sendmax;
+
+				cont_recvmin[0] = recvmin;
+				cont_recvmax[0] = recvmax;
+				cont_recvmin[1] = recvmax + 1;
+				cont_recvmax[1] = recvmax;
+
+				for(slab_x = sendmin; slab_x <= sendmax; slab_x++)
+				{
+					if(slab_to_task[(slab_x + PMGRID) % PMGRID] != ThisTask)
+					{
+						/* non-contiguous */
+						cont_sendmax[0] = slab_x - 1;
+						while(slab_to_task[(slab_x + PMGRID) % PMGRID] != ThisTask)
+							slab_x++;
+						cont_sendmin[1] = slab_x;
+						ncont++;
+					}
+				}
+
+				for(slab_x = recvmin; slab_x <= recvmax; slab_x++)
+				{
+					if(slab_to_task[(slab_x + PMGRID) % PMGRID] != recvTask)
+					{
+						/* non-contiguous */
+						cont_recvmax[0] = slab_x - 1;
+						while(slab_to_task[(slab_x + PMGRID) % PMGRID] != recvTask)
+							slab_x++;
+						cont_recvmin[1] = slab_x;
+						if(ncont == 1)
+							ncont++;
+					}
+				}
+
+
+				for(rep = 0; rep < ncont; rep++)
+				{
+					sendmin = cont_sendmin[rep];
+					sendmax = cont_sendmax[rep];
+					recvmin = cont_recvmin[rep];
+					recvmax = cont_recvmax[rep];
+
+					/* prepare what we want to send */
+					if(sendmax - sendmin >= 0)
+					{
+						for(slab_x = sendmin; slab_x <= sendmax; slab_x++)
+						{
+							slab_xx = ((slab_x + PMGRID) % PMGRID) - first_slab_of_task[ThisTask];
+
+							for(slab_y = meshmin_list[3 * recvTask + 1] - 2;
+									slab_y < meshmax_list[3 * recvTask + 1] + 4; slab_y++)
+							{
+								slab_yy = (slab_y + PMGRID) % PMGRID;
+
+								for(slab_z = meshmin_list[3 * recvTask + 2] - 2;
+										slab_z < meshmax_list[3 * recvTask + 2] + 4; slab_z++)
+								{
+									slab_zz = (slab_z + PMGRID) % PMGRID;
+
+									forcegrid[((slab_x - sendmin) * recv_dimy +
+											(slab_y - (meshmin_list[3 * recvTask + 1] - 2))) * recv_dimz +
+										slab_z - (meshmin_list[3 * recvTask + 2] - 2)] =
+										rhogrid[PMGRID * PMGRID2 * slab_xx + PMGRID2 * slab_yy + slab_zz];
+								}
+							}
+						}
+					}
+
+					if(level > 0) /* workspace is the receiving buffer in both cases, any data present gets overwritten */
+					{
+						MPI_Sendrecv(forcegrid,
+								(sendmax - sendmin + 1) * recv_dimy * recv_dimz * sizeof(fftw_real),
+								MPI_BYTE, recvTask, TAG_PERIODIC_B,
+								workspace + (recvmin - (meshmin[0] - 2)) * dimy * dimz,
+								(recvmax - recvmin + 1) * dimy * dimz * sizeof(fftw_real), MPI_BYTE,
+								recvTask, TAG_PERIODIC_B, MPI_COMM_WORLD, &status);
+					}
+					else
+					{
+						memcpy(workspace + (recvmin - (meshmin[0] - 2)) * dimy * dimz,
+								forcegrid, (recvmax - recvmin + 1) * dimy * dimz * sizeof(fftw_real));
+					}
+				}
+			}
+		}
+	}
+
+	dimx = meshmax[0] - meshmin[0] + 2;
+	dimy = meshmax[1] - meshmin[1] + 2;
+	dimz = meshmax[2] - meshmin[2] + 2;
+
+	recv_dimx = meshmax[0] - meshmin[0] + 6;
+	recv_dimy = meshmax[1] - meshmin[1] + 6;
+	recv_dimz = meshmax[2] - meshmin[2] + 6;
+
+	for(dim = 0; dim < 3; dim++)	/* Calculate each component of the force. */
+	{
+		/* get the force component by finite differencing the potential */
+		/* note: "workspace" now contains the potential for the local patch, plus a suffiently large buffer region */
+
+		for(x = 0; x < meshmax[0] - meshmin[0] + 2; x++)
+			for(y = 0; y < meshmax[1] - meshmin[1] + 2; y++)
+				for(z = 0; z < meshmax[2] - meshmin[2] + 2; z++)
+				{
+					xrr = xll = xr = xl = x;
+					yrr = yll = yr = yl = y;
+					zrr = zll = zr = zl = z;
+
+					switch (dim)
+					{
+						case 0:
+							xr = x + 1;
+							xrr = x + 2;
+							xl = x - 1;
+							xll = x - 2;
+							break;
+						case 1:
+							yr = y + 1;
+							yl = y - 1;
+							yrr = y + 2;
+							yll = y - 2;
+							break;
+						case 2:
+							zr = z + 1;
+							zl = z - 1;
+							zrr = z + 2;
+							zll = z - 2;
+							break;
+					}
+
+					forcegrid[(x * dimy + y) * dimz + z]
+						=
+						fac * ((4.0 / 3) *
+								(workspace[((xl + 2) * recv_dimy + (yl + 2)) * recv_dimz + (zl + 2)]
+								 - workspace[((xr + 2) * recv_dimy + (yr + 2)) * recv_dimz + (zr + 2)]) -
+								(1.0 / 6) *
+								(workspace[((xll + 2) * recv_dimy + (yll + 2)) * recv_dimz + (zll + 2)] -
+								 workspace[((xrr + 2) * recv_dimy + (yrr + 2)) * recv_dimz + (zrr + 2)]));
+				}
+
+		/* read out the forces */
+
+		for(i = 0; i < NumPart; i++)
+		{
+			slab_x = to_slab_fac * P[i].Pos[0];
+			if(slab_x >= PMGRID)
+				slab_x = PMGRID - 1;
+			dx = to_slab_fac * P[i].Pos[0] - slab_x;
+			slab_x -= meshmin[0];
+			slab_xx = slab_x + 1;
+
+			slab_y = to_slab_fac * P[i].Pos[1];
+			if(slab_y >= PMGRID)
+				slab_y = PMGRID - 1;
+			dy = to_slab_fac * P[i].Pos[1] - slab_y;
+			slab_y -= meshmin[1];
+			slab_yy = slab_y + 1;
+
+			slab_z = to_slab_fac * P[i].Pos[2];
+			if(slab_z >= PMGRID)
+				slab_z = PMGRID - 1;
+			dz = to_slab_fac * P[i].Pos[2] - slab_z;
+			slab_z -= meshmin[2];
+			slab_zz = slab_z + 1;
+
+			acc_dim =
+				forcegrid[(slab_x * dimy + slab_y) * dimz + slab_z] * (1.0 - dx) * (1.0 - dy) * (1.0 - dz);
+			acc_dim += forcegrid[(slab_x * dimy + slab_yy) * dimz + slab_z] * (1.0 - dx) * dy * (1.0 - dz);
+			acc_dim += forcegrid[(slab_x * dimy + slab_y) * dimz + slab_zz] * (1.0 - dx) * (1.0 - dy) * dz;
+			acc_dim += forcegrid[(slab_x * dimy + slab_yy) * dimz + slab_zz] * (1.0 - dx) * dy * dz;
+
+			acc_dim += forcegrid[(slab_xx * dimy + slab_y) * dimz + slab_z] * (dx) * (1.0 - dy) * (1.0 - dz);
+			acc_dim += forcegrid[(slab_xx * dimy + slab_yy) * dimz + slab_z] * (dx) * dy * (1.0 - dz);
+			acc_dim += forcegrid[(slab_xx * dimy + slab_y) * dimz + slab_zz] * (dx) * (1.0 - dy) * dz;
+			acc_dim += forcegrid[(slab_xx * dimy + slab_yy) * dimz + slab_zz] * (dx) * dy * dz;
+
+			P[i].GravPM[dim] = acc_dim;
+		}
+	}
+
+	/* Free all but the dark energy arrays */
+	pm_init_periodic_free();
+
+	/* Calculate the next PM timestep and update the DE equations - use finite differences */
+	double hubble_a = All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) +  All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW));
+	hubble_a = All.Hubble * sqrt(hubble_a);
+	find_dt_displacement_constraint(hubble_a*All.Time*All.Time);
+#ifdef DEBUG
+	static int next_integer_timestep=0;
+	static double next_timestep=0;
+	if(next_timestep!=0){
+		if(next_timestep!=All.Time)
+			mpi_fprintf(stderr,"Assertion fail: timestep is %f (integer: %i), expected %f (integer: %i)\n",All.Time,All.Ti_Current,next_timestep,next_integer_timestep);
+		assert(next_timestep==All.Time);
+		assert(next_integer_timestep==All.Ti_Current);
+	}
+	next_integer_timestep=All.Ti_Current+calc_PM_step();
+	next_timestep=All.TimeBegin*exp(next_integer_timestep*All.Timebase_interval);
+#else
+	int next_integer_timestep=All.Ti_Current+calc_PM_step();
+	double next_timestep=All.TimeBegin*exp(next_integer_timestep*All.Timebase_interval);
+#endif
+	master_printf("Next PM timestep: %f, da=%e\n",next_timestep,next_timestep-All.Time);
+
+	if(PMTask)
+		advance_DE_linear(next_timestep-All.Time);
+	MPI_Barrier(MPI_COMM_WORLD);
+	master_printf("Done with the dark energy PM contribution\n");
+
+	free_dark_energy();
+
+	force_treeallocate(All.TreeAllocFactor * All.MaxPart, All.MaxPart);
+
+	All.NumForcesSinceLastDomainDecomp = 1 + All.TotNumPart * All.TreeDomainUpdateFrequency;
+
+	if(first_DE_run)
+		first_DE_run=0;
+
+	if(ThisTask == 0)
+	{
+		printf("done PM.\n");
+		fflush(stdout);
+	}
+}
+#endif
 
 #endif
 
@@ -2259,8 +2766,9 @@ void CIC(int *meshmin,int *meshmax){
 
 #ifdef DYNAMICAL_DE
 void DE_IC(void){
-	int i,j;
-
+	int i;
+#ifdef NONLINEAR_DE
+	int j;
 	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
 	{
 		rhogrid_DE[i]=mean_DE;
@@ -2270,11 +2778,21 @@ void DE_IC(void){
 			ugrid_DE[i][j]=0;
 		}
 	}
+#else
+	for( i=0 ; i<fftsize ; ++i )
+	{
+		rhogrid_DE[i].re=0;
+		rhogrid_DE[i].im=0;
+		ugrid_DE[i].re=0;
+		ugrid_DE[i].im=0;
+	}
+#endif
 
 	master_printf("Done with dark energy initial conditions\n");
 }
 
-void advance_DE(const fftw_real da){
+#ifdef NONLINEAR_DE
+void advance_DE_nonlinear(const fftw_real da){
 	const double fac_FD = 1 / (2.0 * All.BoxSize / PMGRID);	/* for finite differencing. Factor 1/2 is part of the FD coefficients, could be moved there as well */
 	const double potfac =All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential */
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
@@ -2487,7 +3005,52 @@ void advance_DE(const fftw_real da){
 			for( z=0 ; z<PMGRID ; ++z )
 				dPgrid[x*PMGRID*PMGRID+y*PMGRID+z]=dPgrid_fftw[INDMAP(x,y,z)];	
 }
+#else
+void advance_DE_linear(const fftw_real da){
+	const double potfac =-All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential */
+	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
+	const double a=All.Time;
+	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;
+	const double H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)));
+	const double Hubble_len_inv=H/lightspeed;
+	const double cs=All.DarkEnergySoundSpeed;
+	const double w=All.DarkEnergyW;
+	int x,y,z,ip;
+	double k2;
+	fftw_complex theta, phi, delta;
+	fftw_complex theta_dot,delta_dot;
 
+	master_printf("Current Hubble length: %.4e ( %.4e Mpc). Inverse: %.4e ( %.4e Mpc)\n",1/Hubble_len_inv,1/Hubble_len_inv*All.UnitLength_in_cm/CM_PER_MPC,Hubble_len_inv,Hubble_len_inv*1/(All.UnitLength_in_cm/CM_PER_MPC));
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x = 0; x < PMGRID; x++)
+			for(z = 0; z < PMGRID / 2 + 1; z++)			
+			{
+				k2 = x*x + y*y + z*z ; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
+				if(k2==0)
+					continue;
+				k2=k2*(2*M_PI/All.BoxSize)*(2*M_PI/All.BoxSize);
+				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+				theta=ugrid_DE[ip];
+				phi=rhogrid_tot[ip];
+				delta=rhogrid_DE[ip];
+
+				delta_dot.re=-(1+w)*theta.re-3*(cs*cs-w)*a*H*delta.re-9*(1+w)*(cs*cs-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.re;
+				delta_dot.im=-(1+w)*theta.im-3*(cs*cs-w)*a*H*delta.im-9*(1+w)*(cs*cs-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.im;
+
+				theta_dot.re=-(1-3*cs*cs)*a*H*theta.re+cs*cs*k2/(1+w)*delta.re+k2*potfac*phi.re;
+				theta_dot.im=-(1-3*cs*cs)*a*H*theta.im+cs*cs*k2/(1+w)*delta.im+k2*potfac*phi.im;
+
+				ugrid_DE[ip].re+=theta_dot.re*a*a*H*da;
+				ugrid_DE[ip].im+=theta_dot.im*a*a*H*da;
+
+				rhogrid_DE[ip].re+=delta_dot.re*a*a*H*da;
+				rhogrid_DE[ip].re+=delta_dot.im*a*a*H*da;
+			}
+
+}
+#endif
+
+#ifdef NONLINEAR_DE
 void pm_stats(char* fname){
 	FILE *fd;
 	int i,j,k;
@@ -2689,6 +3252,8 @@ void write_U_grid(char* fname_U){
 		free(slabs);
 	}
 }
+#endif //NONLINEAR_DE
+#endif //DYNAMICAL_DE
 
 void write_header(FILE* fd){
 	const unsigned int gridsize=PMGRID;
@@ -2704,8 +3269,6 @@ void write_header(FILE* fd){
 #endif
 	fwrite(&gridsize,1,sizeof(unsigned int),fd);
 }
-#endif
-
 #endif
 #endif
 
