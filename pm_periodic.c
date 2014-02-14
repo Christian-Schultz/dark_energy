@@ -76,10 +76,6 @@ static short int PMTask=0;
 void DE_IC(void);  /* Dark energy initial conditions */
 #ifdef NONLINEAR_DE
 void advance_DE_nonlinear(fftw_real); /* Function prototype for the routine responsible for advancing the nonlinear dark energy density and velocity perturbations*/
-#else
-void advance_DE_linear(fftw_real);    /* Function prototype for the routine responsible for advancing the linear dark energy density and velocity perturbations */
-#endif
-
 void write_header(FILE *);
 void write_dm_grid(char *);
 void write_de_grid(char *);
@@ -90,6 +86,9 @@ static int send_tasks[6]; /* The (up to 6) tasks that needs this task's slabs. O
 static int slabs_to_send[6]; /* The slabs this task needs to send in the order defined in send_tasks */
 static int slabs_to_recv[4]; /* The slabs this task needs to receive in the order defined in recv_tasks */
 static int nslabs_to_send;  /* How many slabs does this task need to send? Normally 4, but possibly up to 6 if some tasks only have 1 slab */
+#else
+void advance_DE_linear(fftw_real);    /* Function prototype for the routine responsible for advancing the linear dark energy density and velocity perturbations */
+#endif
 
 /* The dark energy arrays come in 2 forms: An array corresponding to the actual slabs of the task, and an expanded array
  * with space for 4 extra slabs (2 in each end) used for finite differencing */
@@ -108,6 +107,7 @@ static fftw_real mean_DM, mean_DE;
  * (if the current task, for example, has the slabs from 4 to 8 it needs slabs 2 and 3 from the task(s) to its "left"
  * and slabs 9 and 10 from the task(s) to its "right"). The extra slabs are used in the finite differencing of the different 
  * dark energy quantities */
+#ifdef NONLINEAR_DE
 int comm_order(int nslabs){
 	if(PMTask){
 		int index=LOGICAL_INDEX(slabstart_x-2);
@@ -208,6 +208,7 @@ int comm_order(int nslabs){
 	else
 		return 0;
 }
+#endif
 
 /* One-time allocation of the dark energy arrays */
 void DE_allocate(int nx){
@@ -316,7 +317,9 @@ void pm_init_periodic(void)
 	/* Allocate extra memory for the dark energy part and establish communication order */
 	if(nslab_x>0)
 		PMTask=1;
+#ifdef NONLINEAR_DE
 	nslabs_to_send=comm_order(nslab_x);
+#endif
 #endif
 }
 
@@ -2766,9 +2769,8 @@ void CIC(int *meshmin,int *meshmax){
 
 #ifdef DYNAMICAL_DE
 void DE_IC(void){
-	int i;
 #ifdef NONLINEAR_DE
-	int j;
+	int i,j;
 	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
 	{
 		rhogrid_DE[i]=mean_DE;
@@ -2779,13 +2781,18 @@ void DE_IC(void){
 		}
 	}
 #else
-	for( i=0 ; i<fftsize ; ++i )
-	{
-		rhogrid_DE[i].re=0;
-		rhogrid_DE[i].im=0;
-		ugrid_DE[i].re=0;
-		ugrid_DE[i].im=0;
-	}
+	int x,y,z,ip;
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x = 0; x < PMGRID; x++)
+			for(z = 0; z < PMGRID / 2 + 1; z++)
+
+			{
+				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+				rhogrid_DE[ip].re=0;
+				rhogrid_DE[ip].im=0;
+				ugrid_DE[ip].re=0;
+				ugrid_DE[ip].im=0;
+			}
 #endif
 
 	master_printf("Done with dark energy initial conditions\n");
