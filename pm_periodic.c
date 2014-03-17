@@ -1739,6 +1739,20 @@ void pmforce_periodic_DE_linear(void)
 
 	pm_init_periodic_allocate((dimx + 4) * (dimy + 4) * (dimz + 4));
 	DE_periodic_allocate();
+
+	/* Non-blocking send/receive statements for rhogrid_DE and ugrid_DE */
+
+	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
+	
+	/* Cloud-in-Cell interpolation. Moved to its own function for readability.
+	 * Assigns mass to rhogrid while the dark energy grids are being exchanged. */
+	CIC(meshmin,meshmax);
+
+
+
+	/* Do the FFT of the dark matter density field */
+	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
+
 	if(first_DE_run){
 		temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 		temp=sqrt(temp/(3*(1+All.DarkEnergyW)*(temp-All.DarkEnergyW)));
@@ -1752,13 +1766,6 @@ void pmforce_periodic_DE_linear(void)
 		DE_allocate(nslab_x);
 		DE_IC_linear();
 	}
-	/* Non-blocking send/receive statements for rhogrid_DE and ugrid_DE */
-
-	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
-	
-	/* Cloud-in-Cell interpolation. Moved to its own function for readability.
-	 * Assigns mass to rhogrid while the dark energy grids are being exchanged. */
-	CIC(meshmin,meshmax);
 
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -1786,10 +1793,6 @@ void pmforce_periodic_DE_linear(void)
 		++Nruns;
 	}
 #endif
-
-	/* Do the FFT of the dark matter density field */
-	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
-
 	char fname_power[256];
 	sprintf(fname_power,"%sDM_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec(fname_power,fft_of_rhogrid,1);
@@ -2789,33 +2792,7 @@ void CIC(int *meshmin,int *meshmax){
 }
 
 #ifdef DYNAMICAL_DE
-void DE_IC_nonlinear(void){
-	int i,j;
-	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
-	{
-		rhogrid_DE[i]=mean_DE;
-		dPgrid[i]=0;
-		for( j=0 ; j<3 ; ++j )
-		{
-			ugrid_DE[i][j]=0;
-		}
-	}
-#else
-	int x,y,z,ip;
-	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
-		for(x = 0; x < PMGRID; x++)
-			for(z = 0; z < PMGRID / 2 + 1; z++)
 
-			{
-				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				rhogrid_DE[ip].re=0;
-				rhogrid_DE[ip].im=0;
-				ugrid_DE[ip].re=0;
-				ugrid_DE[ip].im=0;
-			}
-
-	master_printf("Done with dark energy initial conditions\n");
-}
 #ifdef NONLINEAR_DE
 void DE_IC_nonlinear(void){
 	int i,j;
@@ -3058,8 +3035,8 @@ void DE_IC_linear(void){
 	int kx, ky, kz;
 	fftw_real k;
 	const fftw_real rho_prefactor=(1+All.DarkEnergyW)*(1-2*All.DarkEnergySoundSpeed)/(1-3*All.DarkEnergyW+All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed);
-	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)));
-	const sound_horizon=ALl.DarkEnergySoundSpeed/H;
+	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
+	const fftw_real sound_horizon=All.DarkEnergySoundSpeed/H;
 	const fftw_real U_prefactor=(-1+6*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW)/(1-3*All.DarkEnergyW+All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed))*H;
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -3079,20 +3056,20 @@ void DE_IC_linear(void){
 					kz = z;
 
 				k= kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
-				k=sqrt(k2)*2 M_PI/All.BoxSize;
+				k=sqrt(k)*2 *M_PI/All.BoxSize;
 
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
 				if (k<sound_horizon){
-				rhogrid_DE[ip].re=rho_prefactor*rhogrid[ip].re;
-				rhogrid_DE[ip].im=rho_prefactor*rhogrid[ip].im;;
-				ugrid_DE[ip].re=U_prefactor*rhogrid[ip].re;
-				ugrid_DE[ip].im=U_prefactor*rhogrid[ip].im;
+					rhogrid_DE[ip].re=rho_prefactor*fft_of_rhogrid[ip].re;
+					rhogrid_DE[ip].im=rho_prefactor*fft_of_rhogrid[ip].im;;
+					ugrid_DE[ip].re=U_prefactor*fft_of_rhogrid[ip].re;
+					ugrid_DE[ip].im=U_prefactor*fft_of_rhogrid[ip].im;
 				}
 				else{
-				rhogrid_DE[ip].re=0;
-				rhogrid_DE[ip].im=0:
-				ugrid_DE[ip].re=0;
-				ugrid_DE[ip].im=0;
+					rhogrid_DE[ip].re=0;
+					rhogrid_DE[ip].im=0;
+					ugrid_DE[ip].re=0;
+					ugrid_DE[ip].im=0;
 				}
 			}
 
@@ -3109,7 +3086,7 @@ void advance_DE_linear(const fftw_real da){
 	const fftw_real cs=All.DarkEnergySoundSpeed;
 	const fftw_real w=All.DarkEnergyW;
 	const fftw_real k2Norm=(2*M_PI/All.BoxSize)*(2*M_PI/All.BoxSize);
-	
+
 	int x,y,z,ip;
 	fftw_real k2;
 	fftw_complex theta, phi, delta;
@@ -3221,7 +3198,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr, short int IsDarkMatter)
 					kk=floor(sqrt(k2)+0.5); //Norm of k squared (0.5 factor rounds it to nearest integer)
 
 #ifdef DEBUG
-				assert(kk>=1);
+					assert(kk>=1);
 #endif
 					if( kk <= nr_freq && kk >= 1 )
 					{
@@ -3280,7 +3257,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr, short int IsDarkMatter)
 
 						re_part=fft_arr[ip].re*cic_fac;
 						im_part=fft_arr[ip].im*cic_fac;
-						
+
 						power_z[kk-1]+=re_part*re_part+im_part*im_part; //This is the power. Will normalize later
 						num_z[kk-1]+=1;
 
@@ -3353,7 +3330,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr, short int IsDarkMatter)
 void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr, short int IsDarkMatter){
 	const int Nyquist=PMGRID/2;
 	/* Maximum number of different k2 modes in box below Nyquist */
- 	const int k2_max=3*Nyquist*Nyquist;
+	const int k2_max=3*Nyquist*Nyquist;
 	int x,y,z, ip, nx, ny, nz;
 	int zdim=PMGRID/2+1;
 	unsigned long int k2;
@@ -3399,7 +3376,7 @@ void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr, short int I
 				k2=nx*nx+ny*ny+nz*nz;
 				if(k2==0)
 					continue;
-			
+
 				/* Symmetry removing part */
 				if( z==0 || z == Nyquist )
 				{
@@ -3502,7 +3479,7 @@ void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr, short int I
 	free(power_arr);
 
 }
-#endif
+#endif //NONLINEAR
 
 #ifdef NONLINEAR_DE
 void pm_stats(char* fname){
