@@ -73,13 +73,13 @@ void CIC(int*,int*);
 #ifdef DYNAMICAL_DE
 static short int first_DE_run=1;
 static short int PMTask=0;
-void DE_IC(void);  /* Dark energy initial conditions */
 void write_header(FILE *);
 void write_dm_grid(char *);
 void write_de_grid(char *);
 void write_U_grid(char *);
 
 #ifdef NONLINEAR_DE
+void DE_IC_nonlinear(void);  /* Dark energy initial conditions */
 void advance_DE_nonlinear(fftw_real); /* Function prototype for the routine responsible for advancing the nonlinear dark energy density and velocity perturbations*/
 static int recv_tasks[4]; /* The 4 tasks that have the slabs this task needs (ordered left left, left, right, right right) */
 static int send_tasks[6]; /* The (up to 6) tasks that needs this task's slabs. Only in the case where some tasks, but not all, only have 1 slab it is neccessary to communicate with 6 others, otherwise this is normally 4*/
@@ -87,6 +87,7 @@ static int slabs_to_send[6]; /* The slabs this task needs to send in the order d
 static int slabs_to_recv[4]; /* The slabs this task needs to receive in the order defined in recv_tasks */
 static int nslabs_to_send;  /* How many slabs does this task need to send? Normally 4, but possibly up to 6 if some tasks only have 1 slab */
 #else
+void DE_IC_linear(void);  /* Dark energy initial conditions */
 void calc_powerspec(char *,fftw_complex *, short int);
 void calc_powerspec_alternative(char *,fftw_complex *, short int);
 void advance_DE_linear(fftw_real);    /* Function prototype for the routine responsible for advancing the linear dark energy density and velocity perturbations */
@@ -1043,7 +1044,7 @@ void pmforce_periodic_DE_nonlinear(void)
 				temp,1/temp-1
 			     );
 		DE_allocate(nslab_x);
-		DE_IC();
+		DE_IC_nonlinear();
 	}
 	/* Non-blocking send/receive statements for rhogrid_DE and ugrid_DE */
 
@@ -1265,7 +1266,7 @@ void pmforce_periodic_DE_nonlinear(void)
 #ifdef DEBUG
 					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].re;
 
-					divU=dP_prefactor*vol_fac*fft_of_dPgrid[ip].re/k2;
+					divU=pot_prefactor*fft_of_dPgrid[ip].re/k2;
 					if(fabs(divU)>fabs(temp)){
 						++bad_points;
 						trigger=1;
@@ -1274,7 +1275,7 @@ void pmforce_periodic_DE_nonlinear(void)
 					P_gauge_std.re+=pow(divU,2);
 
 					temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*fft_of_rhogrid_tot[ip].im;
-					divU=dP_prefactor*vol_fac*fft_of_dPgrid[ip].im/k2;
+					divU=pot_prefactor*fft_of_dPgrid[ip].im/k2;
 					if(trigger==0 && fabs(divU)>fabs(temp))
 						++bad_points;
 					P_std.im      +=pow(temp,2);
@@ -1348,9 +1349,6 @@ void pmforce_periodic_DE_nonlinear(void)
 
 	/* Do the FFT of rhogrid_tot to get the total potential of the singly deconvolved dm + unconvolved de */
 	rfftwnd_mpi(fft_inverse_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
-
-	/* Now do the inverse FFT to get dP */
-	rfftwnd_mpi(fft_inverse_plan, 1, dPgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
 
 	/* Now rhogrid holds the potential */
 	/* construct the potential for the local patch */
@@ -1517,8 +1515,6 @@ void pmforce_periodic_DE_nonlinear(void)
 			slab=slabs_to_send[i]-slabstart_x;
 			/* Send rhogrid_tot slabs. */ 
 			MPI_Isend(rhogrid_tot+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,send_tasks[i],slabs_to_send[i],MPI_COMM_WORLD,&comm_reqs[req_count++]);
-			/* Send pressure slabs. Tagged with absolute slab index + PMGRID so as to not coincide with the rhogrid tag */
-			MPI_Isend(dPgrid_fftw+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,send_tasks[i],slabs_to_send[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 		}
 
 		/* Receive slabs */
@@ -1527,8 +1523,6 @@ void pmforce_periodic_DE_nonlinear(void)
 			slab=LOGICAL_INDEX(slabs_to_recv[i]-slabstart_x+2); /* Index minus start of local patch + 2 since the received patch starts at relative index -2  */
 			/* Receive rhogrid_tot slabs (this is the potential) */
 			MPI_Irecv(rhogrid_tot_expanded+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i],MPI_COMM_WORLD,&comm_reqs[req_count++]);
-			/* Receive pressure slabs. Tagged with absolute slab index + PMGRID so as to not coincide with the rhogrid tag */
-			MPI_Irecv(dPgrid_fftw_expanded+slab*PMGRID*PMGRID2,PMGRID*PMGRID2*sizeof(fftw_real),MPI_BYTE,recv_tasks[i],slabs_to_recv[i]+PMGRID,MPI_COMM_WORLD,&comm_reqs[req_count++]);
 		}
 	}
 
@@ -1620,9 +1614,9 @@ void pmforce_periodic_DE_nonlinear(void)
 	/* Free all but the dark energy arrays */
 	pm_init_periodic_free();
 
-	/* Wait point for non-blocking exchange of rhogrid_tot and dPgrid slabs. */
+	/* Wait point for non-blocking exchange of rhogrid_tot*/
 	if(PMTask)
-		if(MPI_SUCCESS!=MPI_Waitall(2*(nslabs_to_send+4),comm_reqs,status_DE)){
+		if(MPI_SUCCESS!=MPI_Waitall((nslabs_to_send+4),comm_reqs,status_DE)){
 			mpi_fprintf(stderr,"Error in MPI_Waitall (%s: %i)\n",__FILE__,__LINE__);
 			endrun(1);
 		}
@@ -1756,7 +1750,7 @@ void pmforce_periodic_DE_linear(void)
 				temp,1/temp-1
 			     );
 		DE_allocate(nslab_x);
-		DE_IC();
+		DE_IC_linear();
 	}
 	/* Non-blocking send/receive statements for rhogrid_DE and ugrid_DE */
 
@@ -2795,8 +2789,7 @@ void CIC(int *meshmin,int *meshmax){
 }
 
 #ifdef DYNAMICAL_DE
-void DE_IC(void){
-#ifdef NONLINEAR_DE
+void DE_IC_nonlinear(void){
 	int i,j;
 	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
 	{
@@ -2820,12 +2813,32 @@ void DE_IC(void){
 				ugrid_DE[ip].re=0;
 				ugrid_DE[ip].im=0;
 			}
-#endif
 
 	master_printf("Done with dark energy initial conditions\n");
 }
-
 #ifdef NONLINEAR_DE
+void DE_IC_nonlinear(void){
+	int i,j;
+	for( i=0 ; i<nslab_x*PMGRID*PMGRID ; ++i )
+	{
+		rhogrid_DE[i]=mean_DE;
+		dPgrid[i]=0;
+		for( j=0 ; j<3 ; ++j )
+		{
+			ugrid_DE[i][j]=0;
+		}
+	}
+
+}
+
+inline fftw_real equation_of_state_DE(fftw_real rho){
+	fftw_real P;
+	/* TODO: Needs to be relative to h */
+	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)*All.UnitEnergy_in_cgs;
+	P=2*rho/(1+exp(-2*(rho-rho_inf)/rho_inf))-2*rho;
+	return P;
+}
+
 void advance_DE_nonlinear(const fftw_real da){
 	const double fac_FD = 1 / (2.0 * All.BoxSize / PMGRID);	/* for finite differencing. Factor 1/2 is part of the FD coefficients, could be moved there as well */
 	const double potfac =All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential */
@@ -3040,6 +3053,52 @@ void advance_DE_nonlinear(const fftw_real da){
 				dPgrid[x*PMGRID*PMGRID+y*PMGRID+z]=dPgrid_fftw[INDMAP(x,y,z)];	
 }
 #else
+void DE_IC_linear(void){
+	int x,y,z,ip;
+	int kx, ky, kz;
+	fftw_real k;
+	const fftw_real rho_prefactor=(1+All.DarkEnergyW)*(1-2*All.DarkEnergySoundSpeed)/(1-3*All.DarkEnergyW+All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed);
+	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)));
+	const sound_horizon=ALl.DarkEnergySoundSpeed/H;
+	const fftw_real U_prefactor=(-1+6*All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed-All.DarkEnergyW)/(1-3*All.DarkEnergyW+All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed))*H;
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x = 0; x < PMGRID; x++)
+			for(z = 0; z < PMGRID / 2 + 1; z++)
+			{
+				if(x > PMGRID / 2)
+					kx = x - PMGRID;
+				else
+					kx = x;
+				if(y > PMGRID / 2)
+					ky = y - PMGRID;
+				else
+					ky = y;
+				if(z > PMGRID / 2)
+					kz = z - PMGRID;
+				else
+					kz = z;
+
+				k= kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
+				k=sqrt(k2)*2 M_PI/All.BoxSize;
+
+				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+				if (k<sound_horizon){
+				rhogrid_DE[ip].re=rho_prefactor*rhogrid[ip].re;
+				rhogrid_DE[ip].im=rho_prefactor*rhogrid[ip].im;;
+				ugrid_DE[ip].re=U_prefactor*rhogrid[ip].re;
+				ugrid_DE[ip].im=U_prefactor*rhogrid[ip].im;
+				}
+				else{
+				rhogrid_DE[ip].re=0;
+				rhogrid_DE[ip].im=0:
+				ugrid_DE[ip].re=0;
+				ugrid_DE[ip].im=0;
+				}
+			}
+
+	master_printf("Done with dark energy initial conditions\n");
+}
+
 void advance_DE_linear(const fftw_real da){
 	const fftw_real potfac =-All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential */
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
