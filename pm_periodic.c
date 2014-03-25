@@ -1683,7 +1683,7 @@ void pmforce_periodic_DE_linear(void)
 	MPI_Status status;
 	char statname[MAXLEN_FILENAME];
 
-	double fac_FD, temp; /* Merge temp with fftw_real divU */
+	double fac_FD, temp;
 	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;
 	const double H=All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
 
@@ -1749,15 +1749,33 @@ void pmforce_periodic_DE_linear(void)
 				temp,1/temp-1
 			     );
 		DE_allocate(nslab_x);
-		DE_IC();
 	}
-	/* Non-blocking send/receive statements for rhogrid_DE and ugrid_DE */
 
 	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
 	
 	/* Cloud-in-Cell interpolation. Moved to its own function for readability.
 	 * Assigns mass to rhogrid while the dark energy grids are being exchanged. */
 	CIC(meshmin,meshmax);
+
+	
+
+#ifdef DEBUG
+	static int Nruns=0;
+	char fname[256];
+	short int trigger=(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs);
+	if(trigger){
+		sprintf(fname,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+		master_printf("Writing dm+de grids\n");
+		write_dm_grid(fname);
+	}
+
+#endif
+
+	/* Do the FFT of the dark matter density field */
+	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
+
+	if(first_DE_run)
+		DE_IC();
 
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -1768,30 +1786,21 @@ void pmforce_periodic_DE_linear(void)
 				rhogrid_tot[ip].re=rhogrid_DE[ip].re*mean_DE*vol_fac;
 				rhogrid_tot[ip].im=rhogrid_DE[ip].im*mean_DE*vol_fac;
 			}
-
 #ifdef DEBUG
-	char fname_DE[256];
-	char fname_DM[256];
-	char fname_U[256];
-	static int Nruns=0;
-	sprintf(fname_DE,"%sDE_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
-	sprintf(fname_DM,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
-	sprintf(fname_U,"%sU_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
-	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
-		master_printf("Writing dm+de grids\n");
-		write_dm_grid(fname_DM);
-		write_de_grid(fname_DE);
-		write_U_grid(fname_U);
+	if(trigger){
+		sprintf(fname,"%sDE_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+		write_de_grid(fname);
+		
+		sprintf(fname,"%sU_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+		write_U_grid(fname);
 		++Nruns;
 	}
 #endif
-
-	/* Do the FFT of the dark matter density field */
-	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
-
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
 	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize);
-	const fftw_real dummy=pow(All.BoxSize,3)*mean_DM;
+	workspace_powergrid[0].re=0;
+	workspace_powergrid[0].im=0;
+	temp=pow(All.BoxSize,3)*mean_DM;
 	/* Translate mass grid to delta (doesn't subtract the mean as this is only relevant for the zero mode).
 	 * Deconvolve. */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
@@ -1800,8 +1809,8 @@ void pmforce_periodic_DE_linear(void)
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
 				/* Convert dimensionless delta to mass */
-				workspace_powergrid[ip].re/=dummy;
-				workspace_powergrid[ip].im/=dummy;
+				workspace_powergrid[ip].re/=temp;
+				workspace_powergrid[ip].im/=temp;
 				if(x > PMGRID / 2)
 					kx = x - PMGRID;
 				else
@@ -1845,13 +1854,13 @@ void pmforce_periodic_DE_linear(void)
 			}
 
 	char fname_power[256];
-	sprintf(fname_power,"%sDM_power_a=%.3f",All.OutputDir,All.Time);
+	sprintf(fname_power,"%s/power/DM_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec(fname_power,workspace_powergrid);
 
-	sprintf(fname_power,"%sALT_DM_power_a=%.3f",All.OutputDir,All.Time);
+	sprintf(fname_power,"%s/power/ALT_DM_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec_alternative(fname_power,workspace_powergrid);
 
-	sprintf(fname_power,"%sDE_power_a=%.3f",All.OutputDir,All.Time);
+	sprintf(fname_power,"%s/power/DE_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec(fname_power,rhogrid_DE);
 
 	double pot_prefactor=-3*(1+All.DarkEnergyW)*mean_DE*H*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
@@ -2857,16 +2866,22 @@ void DE_IC(void){
 	}
 #else
 	int x,y,z,ip;
+	const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
+	const fftw_real w=All.DarkEnergyW;
+	const fftw_real a=All.Time;
+	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)));
+	const fftw_real fac_delta=(w+1)*(1-2*cs2)/(1-3*w+cs2)/(mean_DM*pow(All.BoxSize,3));
+	const fftw_real fac_U=-1+6*cs2*(cs2-w)/(1-3*w+cs2)*H/(mean_DM*pow(All.BoxSize,3));
+	//	const fftw_real sound_horizon=All.DarkEnergySoundSpeed*lightspeed/(All.Time*H);
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
-
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				rhogrid_DE[ip].re=0;
-				rhogrid_DE[ip].im=0;
-				ugrid_DE[ip].re=0;
-				ugrid_DE[ip].im=0;
+				rhogrid_DE[ip].re=fac_delta*fft_of_rhogrid[ip].re;
+				rhogrid_DE[ip].im=fac_delta*fft_of_rhogrid[ip].im;
+				ugrid_DE[ip].re=fac_U*fft_of_rhogrid[ip].re;
+				ugrid_DE[ip].im=fac_U*fft_of_rhogrid[ip].im;
 			}
 #endif
 
@@ -3403,7 +3418,7 @@ void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr){
 	{
 		power_arr[k2]=power_arr[k2]/k2_multi[k2];
 	}
-	
+
 	fftw_real k;
 	fftw_real sigma=0;
 	for( k2=0 ;k2<k2_max  ; ++k2 )
