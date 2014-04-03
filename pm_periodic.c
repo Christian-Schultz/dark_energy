@@ -1749,7 +1749,6 @@ void pmforce_periodic_DE_linear(void)
 				temp,1/temp-1
 			     );
 		DE_allocate(nslab_x);
-		DE_IC();
 	}
 
 	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
@@ -1769,24 +1768,30 @@ void pmforce_periodic_DE_linear(void)
 			}
 
 #ifdef DEBUG
-	char fname_DE[256];
-	char fname_DM[256];
-	char fname_U[256];
+	char fname[256];
 	static int Nruns=0;
-	sprintf(fname_DE,"%sDE_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
-	sprintf(fname_DM,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
-	sprintf(fname_U,"%sU_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
 	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
+		sprintf(fname,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
 		master_printf("Writing dm+de grids\n");
-		write_dm_grid(fname_DM);
-		write_de_grid(fname_DE);
-		write_U_grid(fname_U);
-		++Nruns;
+		write_dm_grid(fname);
 	}
 #endif
 
 	/* Do the FFT of the dark matter density field */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
+
+	if(first_DE_run)
+		DE_IC();
+
+#ifdef DEBUG
+	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
+		sprintf(fname,"%sDE_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+		write_de_grid(fname);
+		sprintf(fname,"%sU_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+		write_U_grid(fname);
+		++Nruns;
+	}
+#endif
 
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
 	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize);
@@ -1854,7 +1859,7 @@ void pmforce_periodic_DE_linear(void)
 
 	sprintf(fname_power,"%s/power/DE_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec(fname_power,rhogrid_DE);
-	
+
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
 	double pot_prefactor=-3*(1+All.DarkEnergyW)*mean_DE*H*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
@@ -3412,7 +3417,7 @@ void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr){
 	{
 		power_arr[k2]=power_arr[k2]/k2_multi[k2];
 	}
-	
+
 	fftw_real k;
 	fftw_real sigma=0;
 	for( k2=0 ;k2<k2_max  ; ++k2 )
