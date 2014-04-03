@@ -2862,6 +2862,7 @@ void DE_IC(void){
 	int x,y,z,ip;
 	const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (All.Time*All.Time*All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time*All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
+	const fftw_real delta_conv=pow(All.BoxSize,3)*All.Omega0*8*M_PI*All.G/(3*All.Hubble*All.Hubble); /* Total mass in simulation */
 
 	fftw_real fac_delta=(1+All.DarkEnergyW)*(1-2*cs2)/(1-3*All.DarkEnergyW+cs2);
 	fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H;
@@ -2871,10 +2872,10 @@ void DE_IC(void){
 
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				rhogrid_DE[ip].re=fac_delta*fft_of_rhogrid[ip].re;
-				rhogrid_DE[ip].im=fac_delta*fft_of_rhogrid[ip].im;
-				ugrid_DE[ip].re=fac_U*fft_of_rhogrid[ip].re;
-				ugrid_DE[ip].im=fac_U*fft_of_rhogrid[ip].im;
+				rhogrid_DE[ip].re=fac_delta*fft_of_rhogrid[ip].re/delta_conv;
+				rhogrid_DE[ip].im=fac_delta*fft_of_rhogrid[ip].im/delta_conv;
+				ugrid_DE[ip].re=fac_U*fft_of_rhogrid[ip].re/delta_conv;
+				ugrid_DE[ip].im=fac_U*fft_of_rhogrid[ip].im/delta_conv;
 			}
 #endif
 
