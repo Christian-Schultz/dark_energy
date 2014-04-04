@@ -1797,7 +1797,7 @@ void pmforce_periodic_DE_linear(void)
 	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize);
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
-	temp=pow(All.BoxSize,3)*All.Omega0*8*M_PI*All.G/(3*All.Hubble*All.Hubble); /* Total mass in simulation */
+	temp=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
 	/* Translate mass grid to delta (doesn't subtract the mean as this is only relevant for the zero mode).
 	 * Deconvolve. */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
@@ -2865,20 +2865,20 @@ void DE_IC(void){
 	int x,y,z,ip;
 	const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (All.Time*All.Time*All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time*All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
-	const fftw_real delta_conv=pow(All.BoxSize,3)*All.Omega0*8*M_PI*All.G/(3*All.Hubble*All.Hubble); /* Total mass in simulation */
+	const fftw_real mass_tot=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
 
-	fftw_real fac_delta=(1+All.DarkEnergyW)*(1-2*cs2)/(1-3*All.DarkEnergyW+cs2);
-	fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
+	const fftw_real fac_delta=(1+All.DarkEnergyW)*(1-2*cs2)/(1-3*All.DarkEnergyW+cs2);
+	const fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				rhogrid_DE[ip].re=fac_delta*fft_of_rhogrid[ip].re/delta_conv;
-				rhogrid_DE[ip].im=fac_delta*fft_of_rhogrid[ip].im/delta_conv;
-				ugrid_DE[ip].re=fac_U*fft_of_rhogrid[ip].re/delta_conv;
-				ugrid_DE[ip].im=fac_U*fft_of_rhogrid[ip].im/delta_conv;
+				rhogrid_DE[ip].re=fac_delta*fft_of_rhogrid[ip].re/mass_tot;
+				rhogrid_DE[ip].im=fac_delta*fft_of_rhogrid[ip].im/mass_tot;
+				ugrid_DE[ip].re=fac_U*fft_of_rhogrid[ip].re/mass_tot;
+				ugrid_DE[ip].im=fac_U*fft_of_rhogrid[ip].im/mass_tot;
 			}
 #endif
 
@@ -3169,9 +3169,7 @@ void advance_DE_linear(const fftw_real da){
 
 }
 
-/* Calculate power spectrum. Saves to file fname and takes the fftw array to calculate the power spectrum from.
- * Needs to know whether this is dark matter (IsDarkMatter=1) or dark energy (IsDarkMatter=0)
- * to get the correct normalization.*/
+/* Calculate power spectrum. Saves to file fname and takes the fftw array to calculate the power spectrum from. */
 void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	const fftw_real kNorm=2.0*M_PI/(All.BoxSize);
 	const fftw_real tophat_scale=8*CM_PER_MPC/All.UnitLength_in_cm;
