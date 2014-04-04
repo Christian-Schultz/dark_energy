@@ -1862,8 +1862,7 @@ void pmforce_periodic_DE_linear(void)
 
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
-	double pot_prefactor=-3*(1+All.DarkEnergyW)*mean_DE*H*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
-	pot_prefactor*=vol_fac;
+	const double pot_prefactor=-3*(1+All.DarkEnergyW)*mean_DE*vol_fac*All.Time*H*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
 
 	/* Dummy variable to store rho */
 	fftw_complex rho_temp_DM;
@@ -1921,8 +1920,8 @@ void pmforce_periodic_DE_linear(void)
 
 					rho_temp_DM=fft_of_rhogrid[ip];
 
-					rhogrid_tot[ip].re=rhogrid_tot[ip].re+pot_prefactor*ugrid_DE[ip].re/k2;
-					rhogrid_tot[ip].im=rhogrid_tot[ip].im+pot_prefactor*ugrid_DE[ip].im/k2;
+					rhogrid_tot[ip].re=(rhogrid_tot[ip].re+pot_prefactor*ugrid_DE[ip].re/k2)*PMGRID*PMGRID*PMGRID;
+					rhogrid_tot[ip].im=(rhogrid_tot[ip].im+pot_prefactor*ugrid_DE[ip].im/k2)*PMGRID*PMGRID*PMGRID;
 
 					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). 
 					 * Multiply with the Green's function and smoothing kernel. 
@@ -1935,7 +1934,6 @@ void pmforce_periodic_DE_linear(void)
 					rhogrid_tot[ip].im = -(rho_temp_DM.im+rhogrid_tot[ip].im)/k2;
 					/* rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
 					 * This means that fft_of_rhogrid_tot now contains the full dark matter + dark energy potential */
-
 
 					/* end deconvolution. Note that the pressure term in the Poisson equation has been added above by modifying the dark energy density */
 				}
@@ -2870,7 +2868,7 @@ void DE_IC(void){
 	const fftw_real delta_conv=pow(All.BoxSize,3)*All.Omega0*8*M_PI*All.G/(3*All.Hubble*All.Hubble); /* Total mass in simulation */
 
 	fftw_real fac_delta=(1+All.DarkEnergyW)*(1-2*cs2)/(1-3*All.DarkEnergyW+cs2);
-	fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H;
+	fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
@@ -3118,11 +3116,12 @@ void advance_DE_linear(const fftw_real da){
 	const fftw_real lightspeed=C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)));
 	const fftw_real Hubble_len_inv=H/lightspeed;
-	const fftw_real cs=All.DarkEnergySoundSpeed;
+	const fftw_real cs2=All.DarkEnergySoundSpeed;
 	const fftw_real w=All.DarkEnergyW;
 	const fftw_real k2Norm=(2*M_PI/All.BoxSize)*(2*M_PI/All.BoxSize);
 
 	int x,y,z,ip;
+	int kx,ky,kz;
 	fftw_real k2;
 	fftw_complex theta, phi, delta;
 	fftw_complex theta_dot,delta_dot;
@@ -3132,7 +3131,21 @@ void advance_DE_linear(const fftw_real da){
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)			
 			{
-				k2 = x*x + y*y + z*z ; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
+				if(x > PMGRID / 2)
+					kx = x - PMGRID;
+				else
+					kx = x;
+				if(y > PMGRID / 2)
+					ky = y - PMGRID;
+				else
+					ky = y;
+				if(z > PMGRID / 2)
+					kz = z - PMGRID;
+				else
+					kz = z;
+
+
+				k2 = kx*kx + ky*ky + kz*kz ; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
 				if(k2==0)
 					continue;
 				k2=k2Norm*k2;
@@ -3141,11 +3154,11 @@ void advance_DE_linear(const fftw_real da){
 				phi=rhogrid_tot[ip];
 				delta=rhogrid_DE[ip];
 
-				delta_dot.re=-(1+w)*theta.re-3*(cs*cs-w)*a*H*delta.re-9*(1+w)*(cs*cs-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.re;
-				delta_dot.im=-(1+w)*theta.im-3*(cs*cs-w)*a*H*delta.im-9*(1+w)*(cs*cs-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.im;
+				delta_dot.re=-(1+w)*theta.re-3*(cs2-w)*a*H*delta.re-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.re;
+				delta_dot.im=-(1+w)*theta.im-3*(cs2-w)*a*H*delta.im-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.im;
 
-				theta_dot.re=-(1-3*cs*cs)*a*H*theta.re+cs*cs*k2/(1+w)*delta.re+k2*potfac*phi.re;
-				theta_dot.im=-(1-3*cs*cs)*a*H*theta.im+cs*cs*k2/(1+w)*delta.im+k2*potfac*phi.im;
+				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*k2/(1+w)*delta.re+k2*potfac*phi.re;
+				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*k2/(1+w)*delta.im+k2*potfac*phi.im;
 
 				ugrid_DE[ip].re+=theta_dot.re*a*a*H*da;
 				ugrid_DE[ip].im+=theta_dot.im*a*a*H*da;
