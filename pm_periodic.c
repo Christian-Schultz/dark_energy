@@ -3182,7 +3182,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	int * num_x=my_malloc(nr_freq*sizeof(int));
 	int * num_y=my_malloc(nr_freq*sizeof(int));
 	int * num_z=my_malloc(nr_freq*sizeof(int));
-	fftw_real * k=my_malloc(nr_freq*sizeof(fftw_real));
+	unsigned int * k=my_malloc(nr_freq*sizeof(fftw_real));
 	int x,y,z,i,ip;
 
 	master_printf("Calculating power spectrum and saving to file %s. Mean delta: %.5e\n",fname,fft_arr[0]);
@@ -3280,10 +3280,10 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 						num_z[kk-1]+=1;
 
 						/* Sigma8 calculation */
-						k2=kNorm*sqrt(k2);
+						k2=kNorm*sqrt( k2);
 						kR=k2*tophat_scale;
 						kR=3.0*(sin(kR)-kR*cos(kR))/pow(kR,3);
-						sigma_z+=power_z[kk-1]*kR*kR;
+						sigma_z+=power_z[kk-1]*kR*kR*k2*k2;	
 					}//kk test
 				} //k2>0
 			} //z loop
@@ -3310,11 +3310,12 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	/* Normalize wavenumbers and power to correct values */
 	for(i=0 ; i<nr_freq ; ++i )
 	{
-		k[i]=kNorm*sqrt(k[i]);
+		//	k[i]=kNorm*sqrt(k[i]);
 		power_y[i]/=num_y[i];
 	}
 
-	sigma=sigma_y*kNorm*kNorm*kNorm*2;
+	sigma=sigma_y;
+	sigma*=1./(2*M_PI*M_PI)*pow(tophat_scale,3);
 	sigma=sqrt(sigma);
 
 	if(ThisTask==0){
@@ -3324,14 +3325,13 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 			fprintf(stderr,"Error opening file: %s: %s.\n",fname,strerror(errno));
 		}
 		else{
-			fprintf(fid,"sigma%.2f: %.5e. PMGRID: %i. Boxsize: %.8e\n",
-					tophat_scale*(All.UnitLength_in_cm/CM_PER_MPC),
-					sigma,PMGRID,All.BoxSize);
-			fprintf(fid,"k\tmodes\tpower\n");
+			fprintf(fid,"sigma%.2f=%.5e, PMGRID=%i, Boxsize=%.8e.\n",
+					tophat_scale*(All.UnitLength_in_cm/CM_PER_MPC),sigma,PMGRID,All.BoxSize);
+			fprintf(fid,"k2\tmodes\tpower\n");
 
 			size_t freq;
 			for( freq=0 ; freq<nr_freq ; ++freq ){
-				fprintf(fid,"%.5e\t%i\t%.5e\n",k[freq],num_y[freq],power_y[freq]);
+				fprintf(fid,"%u\t%i\t%.5e\n",k[freq],num_y[freq],power_y[freq]);
 			}
 			fclose(fid);
 		}
@@ -3443,7 +3443,7 @@ void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr){
 
 	MPI_Allreduce(MPI_IN_PLACE,&sigma,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
 
-	sigma*=2./(3*M_PI)*pow(tophat_scale,3);
+	sigma*=1./(2*M_PI*M_PI)*pow(tophat_scale,3);
 	sigma=sqrt(sigma);
 
 	fftw_real power;
@@ -3454,16 +3454,14 @@ void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr){
 			fprintf(stderr,"Error opening file: %s: %s.\n",fname,strerror(errno));
 		}
 		else{
-			fprintf(fid,"sigma%.2f=%.5e. PMGRID=%i. Boxsize=%.8e\n",tophat_scale*(All.UnitLength_in_cm/CM_PER_MPC),
-					sigma,PMGRID,All.BoxSize);
-			fprintf(fid,"k\tmodes\tpower\n");
+			fprintf(fid,"sigma%.2f=%.5e, PMGRID=%i, Boxsize=%.8e.\n",
+					tophat_scale*(All.UnitLength_in_cm/CM_PER_MPC),sigma,PMGRID,All.BoxSize);
 
 			for( k2=0 ; k2<k2_max ; ++k2 ){
 				if(k2_multi[k2]==0)
 					continue;
-				k=kNorm*sqrt(k);
 				power=power_arr[k2];
-				fprintf(fid,"%.10e\t%i\t%.5e\n",k,k2_multi[k2],power);
+				fprintf(fid,"%lu\t%i\t%.5e\n",k2,k2_multi[k2],power);
 			}
 			fclose(fid);
 		}
