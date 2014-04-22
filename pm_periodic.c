@@ -70,13 +70,13 @@ static FLOAT to_slab_fac;
 
 void CIC(int*,int*);
 void calc_powerspec(char *,fftw_complex *);
+static short int PMTask=0;
+void write_header(FILE *);
+void write_dm_grid(char *);
 
 #ifdef DYNAMICAL_DE
 static short int first_DE_run=1;
-static short int PMTask=0;
 void DE_IC(void);  /* Dark energy initial conditions */
-void write_header(FILE *);
-void write_dm_grid(char *);
 void write_de_grid(char *);
 void write_U_grid(char *);
 
@@ -315,10 +315,10 @@ void pm_init_periodic(void)
 	to_slab_fac = PMGRID / All.BoxSize;
 
 	MPI_Allreduce(&fftsize, &maxfftsize, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-#ifdef DYNAMICAL_DE
-	/* Allocate extra memory for the dark energy part and establish communication order */
 	if(nslab_x>0)
 		PMTask=1;
+	/* Allocate extra memory for the dark energy part and establish communication order */
+#ifdef DYNAMICAL_DE
 #ifdef NONLINEAR_DE
 	nslabs_to_send=comm_order(nslab_x);
 #endif
@@ -642,7 +642,15 @@ void pmforce_periodic(void)
 			}
 		}
 	}
-
+#ifdef DEBUG
+	char fname[256];
+	static int Nruns=0;
+	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
+		sprintf(fname,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+		master_printf("Writing dm+de grids\n");
+		write_dm_grid(fname);
+	}
+#endif
 	/* Do the FFT of the density field */
 
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
@@ -3179,6 +3187,46 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	free(num_z);
 	free(k);
 }
+
+void write_dm_grid(char* fname_DM){
+	if(PMTask){
+		int i,j,k,npts;
+		npts=nslab_x*PMGRID*PMGRID;
+		float *slabs=my_malloc(npts*sizeof(float));
+		unsigned int index;
+
+		for(i=0; i<nslab_x; ++i)
+			for(j=0; j<PMGRID; ++j)
+				for(k=0; k<PMGRID; ++k)
+				{
+					index=INDMAP(i,j,k);
+					slabs[i*PMGRID*PMGRID+j*PMGRID+k]=(float) rhogrid[index];
+				}
+
+		FILE *fd=fopen(fname_DM,"w");
+		write_header(fd);
+		fwrite(slabs,npts,sizeof(float),fd);
+		fclose(fd);
+
+		free(slabs);
+	}
+}
+
+void write_header(FILE* fd){
+	const unsigned int gridsize=PMGRID;
+	fwrite(&All.Time,1,sizeof(double),fd);
+	fwrite(&All.BoxSize,1,sizeof(double),fd);
+#ifndef DYNAMICAL_DE
+	const double dummy=0;
+	fwrite(&dummy,1,sizeof(double),fd);
+	fwrite(&dummy,1,sizeof(double),fd);
+#else
+	fwrite(&All.DarkEnergyW,1,sizeof(double),fd);
+	fwrite(&All.DarkEnergySoundSpeed,1,sizeof(double),fd);
+#endif
+	fwrite(&gridsize,1,sizeof(unsigned int),fd);
+}
+
 #ifdef DYNAMICAL_DE
 void DE_IC(void){
 	int x,y,z,ip;
@@ -3788,29 +3836,7 @@ void pm_stats(char* fname){
 #endif //NONLINEAR_DE
 
 
-void write_dm_grid(char* fname_DM){
-	if(PMTask){
-		int i,j,k,npts;
-		npts=nslab_x*PMGRID*PMGRID;
-		float *slabs=my_malloc(npts*sizeof(float));
-		unsigned int index;
 
-		for(i=0; i<nslab_x; ++i)
-			for(j=0; j<PMGRID; ++j)
-				for(k=0; k<PMGRID; ++k)
-				{
-					index=INDMAP(i,j,k);
-					slabs[i*PMGRID*PMGRID+j*PMGRID+k]=(float) rhogrid[index];
-				}
-
-		FILE *fd=fopen(fname_DM,"w");
-		write_header(fd);
-		fwrite(slabs,npts,sizeof(float),fd);
-		fclose(fd);
-
-		free(slabs);
-	}
-}
 
 void write_de_grid(char* fname_DE){
 	if(PMTask){
@@ -3913,20 +3939,7 @@ void write_U_grid(char* fname_U){
 }
 #endif //DYNAMICAL_DE
 
-void write_header(FILE* fd){
-	const unsigned int gridsize=PMGRID;
-	fwrite(&All.Time,1,sizeof(double),fd);
-	fwrite(&All.BoxSize,1,sizeof(double),fd);
-#ifndef DYNAMICAL_DE
-	const double dummy=0;
-	fwrite(&dummy,1,sizeof(double),fd);
-	fwrite(&dummy,1,sizeof(double),fd);
-#else
-	fwrite(&All.DarkEnergyW,1,sizeof(double),fd);
-	fwrite(&All.DarkEnergySoundSpeed,1,sizeof(double),fd);
-#endif
-	fwrite(&gridsize,1,sizeof(unsigned int),fd);
-}
+
 #endif
 #endif
 
