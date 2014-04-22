@@ -69,6 +69,7 @@ static fftw_complex *fft_of_rhogrid;
 static FLOAT to_slab_fac;
 
 void CIC(int*,int*);
+void calc_powerspec(char *,fftw_complex *);
 
 #ifdef DYNAMICAL_DE
 static short int first_DE_run=1;
@@ -87,7 +88,6 @@ static int slabs_to_send[6]; /* The slabs this task needs to send in the order d
 static int slabs_to_recv[4]; /* The slabs this task needs to receive in the order defined in recv_tasks */
 static int nslabs_to_send;  /* How many slabs does this task need to send? Normally 4, but possibly up to 6 if some tasks only have 1 slab */
 #else
-void calc_powerspec(char *,fftw_complex *);
 void calc_powerspec_alternative(char *,fftw_complex *);
 void advance_DE_linear(fftw_real);    /* Function prototype for the routine responsible for advancing the linear dark energy density and velocity perturbations */
 #endif
@@ -646,6 +646,72 @@ void pmforce_periodic(void)
 	/* Do the FFT of the density field */
 
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
+
+	/* Calculate the power spectrum */
+	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
+	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize);
+	workspace_powergrid[0].re=0;
+	workspace_powergrid[0].im=0;
+	fftw_real mean_DM=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark matter density in the universe */
+	fftw_real temp=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
+	/* Translate mass grid to delta (doesn't subtract the mean as this is only relevant for the zero mode).
+	 * Deconvolve. */
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x = 0; x < PMGRID; x++)
+			for(z = 0; z < PMGRID / 2 + 1; z++)
+			{
+				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+				/* Convert dimensionless delta to mass */
+				workspace_powergrid[ip].re/=temp;
+				workspace_powergrid[ip].im/=temp;
+				if(x > PMGRID / 2)
+					kx = x - PMGRID;
+				else
+					kx = x;
+				if(y > PMGRID / 2)
+					ky = y - PMGRID;
+				else
+					ky = y;
+				if(z > PMGRID / 2)
+					kz = z - PMGRID;
+				else
+					kz = z;
+
+				k2 = kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
+
+				if(k2 > 0)
+				{
+					/* Deconvolution */
+					/* Note: Actual deconvolution is sinc(k_phys BoxSize/(2*PMGRID)), but in the code k = k_phys/(2*M_MPI)*BoxSize  */
+					fx = fy = fz = 1;
+					if(kx != 0)
+					{
+						fx = (M_PI * kx) / PMGRID;
+						fx = sin(fx) / fx;
+					}
+					if(ky != 0)
+					{
+						fy = (M_PI * ky) / PMGRID;
+						fy = sin(fy) / fy;
+					}
+					if(kz != 0)
+					{
+						fz = (M_PI * kz) / PMGRID;
+						fz = sin(fz) / fz;
+					}
+					ff = 1 / (fx * fy * fz);
+					workspace_powergrid[ip].re*=ff*ff;
+					workspace_powergrid[ip].im*=ff*ff;
+					/* Done deconvolving */
+				}
+			}
+
+	char fname_power[256];
+	sprintf(fname_power,"%s/power/DM_power_a=%.3f",All.OutputDir,All.Time);
+	calc_powerspec(fname_power,workspace_powergrid);
+
+	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
+
 
 	/* multiply with Green's function for the potential */
 
@@ -1854,8 +1920,8 @@ void pmforce_periodic_DE_linear(void)
 	sprintf(fname_power,"%s/power/DM_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec(fname_power,workspace_powergrid);
 
-	sprintf(fname_power,"%s/power/ALT_DM_power_a=%.3f",All.OutputDir,All.Time);
-	calc_powerspec_alternative(fname_power,workspace_powergrid);
+//	sprintf(fname_power,"%s/power/ALT_DM_power_a=%.3f",All.OutputDir,All.Time);
+//	calc_powerspec_alternative(fname_power,workspace_powergrid);
 
 	sprintf(fname_power,"%s/power/DE_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec(fname_power,rhogrid_DE);
