@@ -26,37 +26,37 @@ static double logTimeMax;
 void init_drift_table(void)
 {
 #define WORKSIZE 100000
-  int i;
-  double result, abserr;
-  gsl_function F;
-  gsl_integration_workspace *workspace;
+	int i;
+	double result, abserr;
+	gsl_function F;
+	gsl_integration_workspace *workspace;
 
-  logTimeBegin = log(All.TimeBegin);
-  logTimeMax = log(All.TimeMax);
+	logTimeBegin = log(All.TimeBegin);
+	logTimeMax = log(All.TimeMax);
 
-  workspace = gsl_integration_workspace_alloc(WORKSIZE);
+	workspace = gsl_integration_workspace_alloc(WORKSIZE);
 
-  for(i = 0; i < DRIFT_TABLE_LENGTH; i++)
-    {
-      F.function = &drift_integ;
-      gsl_integration_qag(&F, exp(logTimeBegin), exp(logTimeBegin + ((logTimeMax - logTimeBegin) / DRIFT_TABLE_LENGTH) * (i + 1)), 0,
-			  1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result, &abserr);
-      DriftTable[i] = result;
-
-
-      F.function = &gravkick_integ;
-      gsl_integration_qag(&F, exp(logTimeBegin), exp(logTimeBegin + ((logTimeMax - logTimeBegin) / DRIFT_TABLE_LENGTH) * (i + 1)), 0,
-			  1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result, &abserr);
-      GravKickTable[i] = result;
+	for(i = 0; i < DRIFT_TABLE_LENGTH; i++)
+	{
+		F.function = &drift_integ;
+		gsl_integration_qag(&F, exp(logTimeBegin), exp(logTimeBegin + ((logTimeMax - logTimeBegin) / DRIFT_TABLE_LENGTH) * (i + 1)), 0,
+				1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result, &abserr);
+		DriftTable[i] = result;
 
 
-      F.function = &hydrokick_integ;
-      gsl_integration_qag(&F, exp(logTimeBegin), exp(logTimeBegin + ((logTimeMax - logTimeBegin) / DRIFT_TABLE_LENGTH) * (i + 1)), 0,
-			  1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result, &abserr);
-      HydroKickTable[i] = result;
-    }
+		F.function = &gravkick_integ;
+		gsl_integration_qag(&F, exp(logTimeBegin), exp(logTimeBegin + ((logTimeMax - logTimeBegin) / DRIFT_TABLE_LENGTH) * (i + 1)), 0,
+				1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result, &abserr);
+		GravKickTable[i] = result;
 
-  gsl_integration_workspace_free(workspace);
+
+		F.function = &hydrokick_integ;
+		gsl_integration_qag(&F, exp(logTimeBegin), exp(logTimeBegin + ((logTimeMax - logTimeBegin) / DRIFT_TABLE_LENGTH) * (i + 1)), 0,
+				1.0e-8, WORKSIZE, GSL_INTEG_GAUSS41, workspace, &result, &abserr);
+		HydroKickTable[i] = result;
+	}
+
+	gsl_integration_workspace_free(workspace);
 }
 
 
@@ -66,36 +66,36 @@ void init_drift_table(void)
  */
 double get_drift_factor(int time0, int time1)
 {
-  double a1, a2, df1, df2, u1, u2;
-  int i1, i2;
+	double a1, a2, df1, df2, u1, u2;
+	int i1, i2;
 
-  /* note: will only be called for cosmological integration */
+	/* note: will only be called for cosmological integration */
 
-  a1 = logTimeBegin + time0 * All.Timebase_interval;
-  a2 = logTimeBegin + time1 * All.Timebase_interval;
+	a1 = logTimeBegin + time0 * All.Timebase_interval;
+	a2 = logTimeBegin + time1 * All.Timebase_interval;
 
-  u1 = (a1 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
-  i1 = (int) u1;
-  if(i1 >= DRIFT_TABLE_LENGTH)
-    i1 = DRIFT_TABLE_LENGTH - 1;
+	u1 = (a1 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
+	i1 = (int) u1;
+	if(i1 >= DRIFT_TABLE_LENGTH)
+		i1 = DRIFT_TABLE_LENGTH - 1;
 
-  if(i1 <= 1)
-    df1 = u1 * DriftTable[0];
-  else
-    df1 = DriftTable[i1 - 1] + (DriftTable[i1] - DriftTable[i1 - 1]) * (u1 - i1);
+	if(i1 <= 1)
+		df1 = u1 * DriftTable[0];
+	else
+		df1 = DriftTable[i1 - 1] + (DriftTable[i1] - DriftTable[i1 - 1]) * (u1 - i1);
 
 
-  u2 = (a2 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
-  i2 = (int) u2;
-  if(i2 >= DRIFT_TABLE_LENGTH)
-    i2 = DRIFT_TABLE_LENGTH - 1;
+	u2 = (a2 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
+	i2 = (int) u2;
+	if(i2 >= DRIFT_TABLE_LENGTH)
+		i2 = DRIFT_TABLE_LENGTH - 1;
 
-  if(i2 <= 1)
-    df2 = u2 * DriftTable[0];
-  else
-    df2 = DriftTable[i2 - 1] + (DriftTable[i2] - DriftTable[i2 - 1]) * (u2 - i2);
+	if(i2 <= 1)
+		df2 = u2 * DriftTable[0];
+	else
+		df2 = DriftTable[i2 - 1] + (DriftTable[i2] - DriftTable[i2 - 1]) * (u2 - i2);
 
-  return df2 - df1;
+	return df2 - df1;
 }
 
 
@@ -105,36 +105,36 @@ double get_drift_factor(int time0, int time1)
  */
 double get_gravkick_factor(int time0, int time1)
 {
-  double a1, a2, df1, df2, u1, u2;
-  int i1, i2;
+	double a1, a2, df1, df2, u1, u2;
+	int i1, i2;
 
-  /* note: will only be called for cosmological integration */
+	/* note: will only be called for cosmological integration */
 
-  a1 = logTimeBegin + time0 * All.Timebase_interval;
-  a2 = logTimeBegin + time1 * All.Timebase_interval;
+	a1 = logTimeBegin + time0 * All.Timebase_interval;
+	a2 = logTimeBegin + time1 * All.Timebase_interval;
 
-  u1 = (a1 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
-  i1 = (int) u1;
-  if(i1 >= DRIFT_TABLE_LENGTH)
-    i1 = DRIFT_TABLE_LENGTH - 1;
+	u1 = (a1 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
+	i1 = (int) u1;
+	if(i1 >= DRIFT_TABLE_LENGTH)
+		i1 = DRIFT_TABLE_LENGTH - 1;
 
-  if(i1 <= 1)
-    df1 = u1 * GravKickTable[0];
-  else
-    df1 = GravKickTable[i1 - 1] + (GravKickTable[i1] - GravKickTable[i1 - 1]) * (u1 - i1);
+	if(i1 <= 1)
+		df1 = u1 * GravKickTable[0];
+	else
+		df1 = GravKickTable[i1 - 1] + (GravKickTable[i1] - GravKickTable[i1 - 1]) * (u1 - i1);
 
 
-  u2 = (a2 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
-  i2 = (int) u2;
-  if(i2 >= DRIFT_TABLE_LENGTH)
-    i2 = DRIFT_TABLE_LENGTH - 1;
+	u2 = (a2 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
+	i2 = (int) u2;
+	if(i2 >= DRIFT_TABLE_LENGTH)
+		i2 = DRIFT_TABLE_LENGTH - 1;
 
-  if(i2 <= 1)
-    df2 = u2 * GravKickTable[0];
-  else
-    df2 = GravKickTable[i2 - 1] + (GravKickTable[i2] - GravKickTable[i2 - 1]) * (u2 - i2);
+	if(i2 <= 1)
+		df2 = u2 * GravKickTable[0];
+	else
+		df2 = GravKickTable[i2 - 1] + (GravKickTable[i2] - GravKickTable[i2 - 1]) * (u2 - i2);
 
-  return df2 - df1;
+	return df2 - df1;
 }
 
 /*! This function integrates the cosmological prefactor for a kick step of
@@ -142,99 +142,101 @@ double get_gravkick_factor(int time0, int time1)
  */
 double get_hydrokick_factor(int time0, int time1)
 {
-  double a1, a2, df1, df2, u1, u2;
-  int i1, i2;
+	double a1, a2, df1, df2, u1, u2;
+	int i1, i2;
 
-  /* note: will only be called for cosmological integration */
+	/* note: will only be called for cosmological integration */
 
-  a1 = logTimeBegin + time0 * All.Timebase_interval;
-  a2 = logTimeBegin + time1 * All.Timebase_interval;
+	a1 = logTimeBegin + time0 * All.Timebase_interval;
+	a2 = logTimeBegin + time1 * All.Timebase_interval;
 
-  u1 = (a1 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
-  i1 = (int) u1;
-  if(i1 >= DRIFT_TABLE_LENGTH)
-    i1 = DRIFT_TABLE_LENGTH - 1;
+	u1 = (a1 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
+	i1 = (int) u1;
+	if(i1 >= DRIFT_TABLE_LENGTH)
+		i1 = DRIFT_TABLE_LENGTH - 1;
 
-  if(i1 <= 1)
-    df1 = u1 * HydroKickTable[0];
-  else
-    df1 = HydroKickTable[i1 - 1] + (HydroKickTable[i1] - HydroKickTable[i1 - 1]) * (u1 - i1);
+	if(i1 <= 1)
+		df1 = u1 * HydroKickTable[0];
+	else
+		df1 = HydroKickTable[i1 - 1] + (HydroKickTable[i1] - HydroKickTable[i1 - 1]) * (u1 - i1);
 
 
-  u2 = (a2 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
-  i2 = (int) u2;
-  if(i2 >= DRIFT_TABLE_LENGTH)
-    i2 = DRIFT_TABLE_LENGTH - 1;
+	u2 = (a2 - logTimeBegin) / (logTimeMax - logTimeBegin) * DRIFT_TABLE_LENGTH;
+	i2 = (int) u2;
+	if(i2 >= DRIFT_TABLE_LENGTH)
+		i2 = DRIFT_TABLE_LENGTH - 1;
 
-  if(i2 <= 1)
-    df2 = u2 * HydroKickTable[0];
-  else
-    df2 = HydroKickTable[i2 - 1] + (HydroKickTable[i2] - HydroKickTable[i2 - 1]) * (u2 - i2);
+	if(i2 <= 1)
+		df2 = u2 * HydroKickTable[0];
+	else
+		df2 = HydroKickTable[i2 - 1] + (HydroKickTable[i2] - HydroKickTable[i2 - 1]) * (u2 - i2);
 
-  return df2 - df1;
+	return df2 - df1;
 }
 
 
 /*! Integration kernel for drift factor computation.
- */
+*/
 double drift_integ(double a, void *param)
 {
-  double h;
-#ifndef DYNAMICAL_DE
-  h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda;
-  h = All.Hubble * sqrt(h);
+	double h;
+#if defined DYNAMICAL_DE || DE_BACKGROUND
+	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
+	h = All.Hubble * sqrt(h);
 #else
-h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
-  h = All.Hubble * sqrt(h);
+	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda;
+	h = All.Hubble * sqrt(h);
+
 #endif
-  return 1 / (h * a * a * a);
+	return 1 / (h * a * a * a);
 }
 
 /*! Integration kernel for gravitational kick factor computation.
- */
+*/
 double gravkick_integ(double a, void *param)
 {
-  double h;
+	double h;
 
- #ifndef DYNAMICAL_DE
-  h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda;
-  h = All.Hubble * sqrt(h);
+#if defined DYNAMICAL_DE || DE_BACKGROUND
+	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
+	h = All.Hubble * sqrt(h);
 #else
-h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
-  h = All.Hubble * sqrt(h);
+	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda;
+	h = All.Hubble * sqrt(h);
+
 #endif
 
-  return 1 / (h * a * a);
+	return 1 / (h * a * a);
 }
 
 
 /*! Integration kernel for hydrodynamical kick factor computation.
- */
+*/
 double hydrokick_integ(double a, void *param)
 {
-  double h;
- #ifndef DYNAMICAL_DE
-  h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda;
-  h = All.Hubble * sqrt(h);
+	double h;
+#if defined DYNAMICAL_DE || DE_BACKGROUND
+	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
+	h = All.Hubble * sqrt(h);
 #else
-h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
-  h = All.Hubble * sqrt(h);
+	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda;
+	h = All.Hubble * sqrt(h);
 #endif
 
-  return 1 / (h * pow(a, 3 * GAMMA_MINUS1) * a);
+	return 1 / (h * pow(a, 3 * GAMMA_MINUS1) * a);
 }
-
+/*
 double growthfactor_integ(double a, void *param)
 {
-  double s;
+	double s;
 
- #ifndef DYNAMICAL_DE
-  s = All.Omega0 + (1 - All.Omega0 - All.OmegaLambda) * a + All.OmegaLambda * a * a * a;
-  s = sqrt(s);
+#if defined DYNAMICAL_DE || DE_BACKGROUND
+	s = All.Omega0 + (1 - All.Omega0 - All.OmegaLambda) * a + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)) * a * a * a;
 #else
-  s = All.Omega0 + (1 - All.Omega0 - All.OmegaLambda) * a + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)) * a * a * a;
+	s = All.Omega0 + (1 - All.Omega0 - All.OmegaLambda) * a + All.OmegaLambda * a * a * a;
+	s = sqrt(s);
 #endif
-  return pow(sqrt(a) / s, 3);
+	return pow(sqrt(a) / s, 3);
 }
-
+*/
 

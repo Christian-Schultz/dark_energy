@@ -33,13 +33,13 @@
 
 /* Check FFTW datatypes and associate MPI datatypes */
 #ifdef FFTW_MPITYPE 
-	#error "FFTW_MPITYPE already defined"
+#error "FFTW_MPITYPE already defined"
 #else
-	#ifdef DOUBLEPRECISION_FFTW
-		#define FFTW_MPITYPE MPI_DOUBLE
-	#else
-		#define FFTW_MPITYPE MPI_FLOAT
-	#endif
+#ifdef DOUBLEPRECISION_FFTW
+#define FFTW_MPITYPE MPI_DOUBLE
+#else
+#define FFTW_MPITYPE MPI_FLOAT
+#endif
 #endif
 
 /* Dark energy macros */
@@ -119,7 +119,7 @@ int comm_order(int nslabs){
 		index=LOGICAL_INDEX(slabstart_x-1);
 		slabs_to_recv[1]=index;
 		int my_task_l=slab_to_task[index];
-		
+
 		index=LOGICAL_INDEX(slabstart_x+nslab_x);
 		slabs_to_recv[2]=index;
 		int my_task_r=slab_to_task[index];
@@ -144,7 +144,7 @@ int comm_order(int nslabs){
 				if(slabs_per_task[task]<4){
 					master_fprintf(stderr,"Warning: A bad number of tasks has been chosen to run the PM part of the code.\n"
 							"Normally you want each task to have at the very least 4 slabs. "
-							 );
+						      );
 					break;
 				}
 			}
@@ -1106,7 +1106,7 @@ void pmforce_periodic_DE_nonlinear(void)
 
 	pm_init_periodic_allocate((dimx + 4) * (dimy + 4) * (dimz + 4));
 	DE_periodic_allocate();
-if(first_DE_run){
+	if(first_DE_run){
 		temp=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 		temp=sqrt(temp/(3*(1+All.DarkEnergyW)*(temp-All.DarkEnergyW)));
 		master_printf("Dark energy sound speed: %f, dark energy equation of state: %f\n"
@@ -1177,7 +1177,7 @@ if(first_DE_run){
 	free(status_DE);
 	status_DE=NULL;
 
-	#ifdef DEBUG
+#ifdef DEBUG
 	char fname_DE[256];
 	char fname_DM[256];
 	char fname_U[256];
@@ -1469,11 +1469,11 @@ if(first_DE_run){
 					fft_of_rhogrid_tot[ip].im = -(rho_temp_DM.im+fft_of_rhogrid_tot[ip].im)/k2;
 					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
 					 * This means that fft_of_rhogrid_tot now contains the full dark matter + dark energy potential (except for a multiplicative constant that will be fixed in advance_DE_nonlinear) */
-
 					fft_of_dPgrid[ip].re=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.re+dP_prefactor*fft_of_dPgrid[ip].re/k2;
 					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
 					fft_of_dPgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.im+dP_prefactor*fft_of_dPgrid[ip].im/k2;
 					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
+					*/
 				}
 
 			}
@@ -3273,7 +3273,6 @@ void DE_IC(void){
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
-
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
 				rhogrid_DE[ip].re=fac_delta*fft_of_rhogrid[ip].re/mass_tot;
@@ -3461,6 +3460,7 @@ void advance_DE_nonlinear(const fftw_real da){
 #ifdef DEBUG
 				if(new_rhogrid_DE[index]<0){
 					new_rhogrid_DE[index]=0;
+					mpi_fprintf(stderr,"WARNING: Negative dark energy rho\n");
 				}
 
 				U_sq=0;
