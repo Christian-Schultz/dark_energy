@@ -3229,6 +3229,8 @@ void write_header(FILE* fd){
 #ifdef DYNAMICAL_DE
 void DE_IC(void){
 	int x,y,z,ip;
+	int kx,ky,kz,k2;
+	fftw_real fx,fy,fz, ff;
 	const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (All.Time*All.Time*All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time*All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
 	const fftw_real mass_tot=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
