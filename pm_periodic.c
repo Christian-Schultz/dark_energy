@@ -1473,7 +1473,6 @@ void pmforce_periodic_DE_nonlinear(void)
 					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
 					fft_of_dPgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.im+dP_prefactor*fft_of_dPgrid[ip].im/k2;
 					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
-					*/
 				}
 
 			}
@@ -3236,14 +3235,62 @@ void DE_IC(void){
 	const fftw_real fac_delta=(1+All.DarkEnergyW)*(1-2*cs2)/(1-3*All.DarkEnergyW+cs2);
 #ifdef NONLINEAR_DE
 	int i;
+	rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				fft_of_dPgrid[ip].re=fac_delta*fft_of_rhogrid[ip].re/mass_tot;
-				fft_of_dPgrid[ip].im=fac_delta*fft_of_rhogrid[ip].im/mass_tot;
+				/* Convert dimensionless delta to mass */
+				if(x > PMGRID / 2)
+					kx = x - PMGRID;
+				else
+					kx = x;
+				if(y > PMGRID / 2)
+					ky = y - PMGRID;
+				else
+					ky = y;
+				if(z > PMGRID / 2)
+					kz = z - PMGRID;
+				else
+					kz = z;
+
+				k2 = kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
+
+				if(k2 > 0)
+				{
+					/* Deconvolution */
+					/* Note: Actual deconvolution is sinc(k_phys BoxSize/(2*PMGRID)), but in the code k = k_phys/(2*M_MPI)*BoxSize  */
+					fx = fy = fz = 1;
+					if(kx != 0)
+					{
+						fx = (M_PI * kx) / PMGRID;
+						fx = sin(fx) / fx;
+					}
+					if(ky != 0)
+					{
+						fy = (M_PI * ky) / PMGRID;
+						fy = sin(fy) / fy;
+					}
+					if(kz != 0)
+					{
+						fz = (M_PI * kz) / PMGRID;
+						fz = sin(fz) / fz;
+					}
+					ff = 1 / (fx * fy * fz);
+					fft_of_dPgrid[ip].re=fft_of_rhogrid[ip].re*ff*ff;
+					fft_of_dPgrid[ip].im=fft_of_rhogrid[ip].im*ff*ff;
+					/* Done deconvolving */
+					fft_of_dPgrid[ip].re=fac_delta*fft_of_dPgrid[ip].re/mass_tot;
+					fft_of_dPgrid[ip].im=fac_delta*fft_of_dPgrid[ip].im/mass_tot;
+				}
+				else{
+					fft_of_dPgrid[ip].re=0;
+					fft_of_dPgrid[ip].im=0;
+				}
+
+
 			}
 	/*Convert delta to rho */
 	rfftwnd_mpi(fft_inverse_plan, 1, dPgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
@@ -3270,15 +3317,67 @@ void DE_IC(void){
 
 #else
 	const fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
+rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
+
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
+
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				rhogrid_DE[ip].re=fac_delta*fft_of_rhogrid[ip].re/mass_tot;
-				rhogrid_DE[ip].im=fac_delta*fft_of_rhogrid[ip].im/mass_tot;
-				ugrid_DE[ip].re=fac_U*fft_of_rhogrid[ip].re/mass_tot;
-				ugrid_DE[ip].im=fac_U*fft_of_rhogrid[ip].im/mass_tot;
+				/* Convert dimensionless delta to mass */
+				if(x > PMGRID / 2)
+					kx = x - PMGRID;
+				else
+					kx = x;
+				if(y > PMGRID / 2)
+					ky = y - PMGRID;
+				else
+					ky = y;
+				if(z > PMGRID / 2)
+					kz = z - PMGRID;
+				else
+					kz = z;
+
+				k2 = kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
+
+				if(k2 > 0)
+				{
+					/* Deconvolution */
+					/* Note: Actual deconvolution is sinc(k_phys BoxSize/(2*PMGRID)), but in the code k = k_phys/(2*M_MPI)*BoxSize  */
+					fx = fy = fz = 1;
+					if(kx != 0)
+					{
+						fx = (M_PI * kx) / PMGRID;
+						fx = sin(fx) / fx;
+					}
+					if(ky != 0)
+					{
+						fy = (M_PI * ky) / PMGRID;
+						fy = sin(fy) / fy;
+					}
+					if(kz != 0)
+					{
+						fz = (M_PI * kz) / PMGRID;
+						fz = sin(fz) / fz;
+					}
+					ff = 1 / (fx * fy * fz);
+					rhogrid_DE[ip].re=fft_of_rhogrid[ip].re*ff*ff;
+					rhogrid_DE[ip].im=fft_of_rhogrid[ip].im*ff*ff;
+					ugrid_DE[ip].re=fft_of_rhogrid[ip].re*ff*ff;          			
+					ugrid_DE[ip].im=fft_of_rhogrid[ip].im*ff*ff;			
+					/* Done deconvolving */
+					rhogrid_DE[ip].re=fac_delta*rhogrid_DE[ip].re/mass_tot;
+					rhogrid_DE[ip].im=fac_delta*rhogrid_DE[ip].im/mass_tot;
+					ugrid_DE[ip].re=fac_U*rhogrid_DE[ip].re/mass_tot;
+					ugrid_DE[ip].im=fac_U*rhogrid_DE[ip].im/mass_tot;
+				}
+				else{
+					rhogrid_DE[ip].re=0;
+					rhogrid_DE[ip].im=0;
+					ugrid_DE[ip].re=0;
+					ugrid_DE[ip].im=0;
+				}
 			}
 #endif
 
@@ -3561,11 +3660,12 @@ void advance_DE_linear(const fftw_real da){
 				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*k2/(1+w)*delta.re+k2*potfac*phi.re;
 				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*k2/(1+w)*delta.im+k2*potfac*phi.im;
 
+				rhogrid_DE[ip].re+=delta_dot.re*a*a*H*da;
+				rhogrid_DE[ip].im+=delta_dot.im*a*a*H*da;
+
 				ugrid_DE[ip].re+=theta_dot.re*a*a*H*da;
 				ugrid_DE[ip].im+=theta_dot.im*a*a*H*da;
 
-				rhogrid_DE[ip].re+=delta_dot.re*a*a*H*da;
-				rhogrid_DE[ip].im+=delta_dot.im*a*a*H*da;
 			}
 
 }
