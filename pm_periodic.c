@@ -1265,7 +1265,7 @@ void pmforce_periodic_DE_nonlinear(void)
 
 	}
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
-	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize);
+	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize * sizeof(fftw_real));
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
 	temp=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
@@ -1276,9 +1276,6 @@ void pmforce_periodic_DE_nonlinear(void)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				/* Convert dimensionless delta to mass */
-				workspace_powergrid[ip].re/=temp;
-				workspace_powergrid[ip].im/=temp;
 				if(x > PMGRID / 2)
 					kx = x - PMGRID;
 				else
@@ -1318,6 +1315,9 @@ void pmforce_periodic_DE_nonlinear(void)
 					workspace_powergrid[ip].re*=ff*ff;
 					workspace_powergrid[ip].im*=ff*ff;
 					/* Done deconvolving */
+					/* Convert dimensionless delta to mass */
+                                        workspace_powergrid[ip].re/=temp;
+                                        workspace_powergrid[ip].im/=temp;
 				}
 			}
 
@@ -1325,7 +1325,7 @@ void pmforce_periodic_DE_nonlinear(void)
 	sprintf(fname_power,"%s/power/DM_power_a=%.3f",All.OutputDir,All.Time);
 	calc_powerspec(fname_power,workspace_powergrid);
 
-	memcpy(workspace_powergrid,fft_of_rhogrid_tot,fftsize);
+	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize * sizeof(fftw_real));
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
 	temp=PMGRID*PMGRID*PMGRID*mean_DE; /* Total mass in simulation */
@@ -1957,7 +1957,6 @@ void pmforce_periodic_DE_linear(void)
 #endif
 
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
-	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize);
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
 	temp=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
@@ -1968,9 +1967,7 @@ void pmforce_periodic_DE_linear(void)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				/* Convert dimensionless delta to mass */
-				workspace_powergrid[ip].re/=temp;
-				workspace_powergrid[ip].im/=temp;
+				
 				if(x > PMGRID / 2)
 					kx = x - PMGRID;
 				else
@@ -2007,9 +2004,12 @@ void pmforce_periodic_DE_linear(void)
 						fz = sin(fz) / fz;
 					}
 					ff = 1 / (fx * fy * fz);
-					workspace_powergrid[ip].re*=ff*ff;
-					workspace_powergrid[ip].im*=ff*ff;
+					workspace_powergrid[ip].re=fft_of_rhogrid[ip].re*ff*ff;
+					workspace_powergrid[ip].im=fft_of_rhogrid[ip].im*ff*ff;
 					/* Done deconvolving */
+					/* Convert dimensionless delta to mass */
+					workspace_powergrid[ip].re/=temp;
+					workspace_powergrid[ip].im/=temp;
 				}
 			}
 
@@ -2356,21 +2356,10 @@ void pmforce_periodic_DE_linear(void)
 	double hubble_a = All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) +  All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW));
 	hubble_a = All.Hubble * sqrt(hubble_a);
 	find_dt_displacement_constraint(hubble_a*All.Time*All.Time);
-#ifdef DEBUG
-	static int next_integer_timestep=0;
-	static double next_timestep=0;
-	if(next_timestep!=0){
-		if(next_timestep!=All.Time)
-			mpi_fprintf(stderr,"Assertion fail: timestep is %f (integer: %i), expected %f (integer: %i)\n",All.Time,All.Ti_Current,next_timestep,next_integer_timestep);
-		assert(next_timestep==All.Time);
-		assert(next_integer_timestep==All.Ti_Current);
-	}
-	next_integer_timestep=All.Ti_Current+calc_PM_step();
-	next_timestep=All.TimeBegin*exp(next_integer_timestep*All.Timebase_interval);
-#else
+
 	int next_integer_timestep=All.Ti_Current+calc_PM_step();
 	double next_timestep=All.TimeBegin*exp(next_integer_timestep*All.Timebase_interval);
-#endif
+	
 	master_printf("Next PM timestep: %f, da=%e\n",next_timestep,next_timestep-All.Time);
 
 	if(PMTask)
@@ -3241,7 +3230,6 @@ void DE_IC(void){
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
-
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
 				/* Convert dimensionless delta to mass */
@@ -3284,8 +3272,8 @@ void DE_IC(void){
 					fft_of_dPgrid[ip].re=fft_of_rhogrid[ip].re*ff*ff;
 					fft_of_dPgrid[ip].im=fft_of_rhogrid[ip].im*ff*ff;
 					/* Done deconvolving */
-					fft_of_dPgrid[ip].re=fac_delta*fft_of_dPgrid[ip].re/mass_tot;
-					fft_of_dPgrid[ip].im=fac_delta*fft_of_dPgrid[ip].im/mass_tot;
+					fft_of_dPgrid[ip].re*=fac_delta/mass_tot;
+					fft_of_dPgrid[ip].im*=fac_delta/mass_tot;
 				}
 				else{
 					fft_of_dPgrid[ip].re=0;
@@ -3319,7 +3307,7 @@ void DE_IC(void){
 
 #else
 	const fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
-rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
+	rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
 
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -3371,8 +3359,8 @@ rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
 					/* Done deconvolving */
 					rhogrid_DE[ip].re=fac_delta*rhogrid_DE[ip].re/mass_tot;
 					rhogrid_DE[ip].im=fac_delta*rhogrid_DE[ip].im/mass_tot;
-					ugrid_DE[ip].re=fac_U*rhogrid_DE[ip].re/mass_tot;
-					ugrid_DE[ip].im=fac_U*rhogrid_DE[ip].im/mass_tot;
+					ugrid_DE[ip].re=fac_U*ugrid_DE[ip].re/mass_tot;
+					ugrid_DE[ip].im=fac_U*ugrid_DE[ip].im/mass_tot;
 				}
 				else{
 					rhogrid_DE[ip].re=0;
@@ -3394,6 +3382,16 @@ inline fftw_real equation_of_state_DE(fftw_real rho){
 	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)*All.UnitEnergy_in_cgs;
 	P=2*rho/(1+exp(-2*(rho-rho_inf)/rho_inf))-2*rho;
 	return P;
+}
+
+/* Gives the derivative dP/drho (that is: the sound speed) from the dark energy equation of state */
+inline fftw_real equation_of_state_derivative_DE(fftw_real rho){
+	fftw_real dP_drho;
+	fftw_real exponent=exp(-2*(rho-rho_inf)/rho_inf);
+	/* TODO: Needs to be relative to h */
+	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)*All.UnitEnergy_in_cgs;
+	dP_drho=2/(1+exponent)-2+2*rho/rho_inf*exponent*pow((1+exponent),-2);
+	return dP_drho;
 }
 
 void advance_DE_nonlinear(const fftw_real da){
@@ -3419,6 +3417,7 @@ void advance_DE_nonlinear(const fftw_real da){
 	fftw_real dUda[3]; /* dU/da */
 	fftw_real drhoda_current; /* dRho/da */
 	fftw_real Pdot; /* dP/c^2/dtau */
+	fftw_real Pll,Pl,Pr,Prr; /* Easy notation for gradient of pressure */
 	fftw_real rho_plus_P; /* rho + P/c^2 */
 	fftw_real rho_plus_P_reci; /* 1/(rho + P/c^2) */
 	/* Temporary storage for the new density and velocity fields */
@@ -3487,18 +3486,33 @@ void advance_DE_nonlinear(const fftw_real da){
 								  - rhogrid_tot_expanded[INDMAP(xrr,yrr,zrr)]
 								)
 							      );
-					gradP[dim]=
-						fac_FD*(
-								(4.0/3.0)*
-								( - dPgrid_fftw_expanded[INDMAP(xl,yl,zl)]
-								  + dPgrid_fftw_expanded[INDMAP(xr,yr,zr)]
-								)
-								+
-								(1.0 / 6.0) *
-								( dPgrid_fftw_expanded[INDMAP(xll,yll,zll)]
-								  - dPgrid_fftw_expanded[INDMAP(xrr,yrr,zrr)]
-								)
-						       );
+					Pll=equation_of_state_DE( rhogrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll]);
+					Pl =equation_of_state_DE( rhogrid_DE_expanded[(xl * PMGRID + yl) * PMGRID + zl]);
+					Pr =equation_of_state_DE( rhogrid_DE_expanded[(xr * PMGRID + yr) * PMGRID + zr]);
+					Prr=equation_of_state_DE( rhogrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr]);
+					gradP[dim]=fac_FD*(
+							(4.0/3.0)*
+							( -Pl 
+							  +Pr 
+							)
+							+
+							(1.0 / 6.0) *
+							(  Pll 
+							  -Prr 
+							)
+							);
+
+					/*fac_FD*(
+					  (4.0/3.0)*
+					  ( - dPgrid_fftw_expanded[INDMAP(xl,yl,zl)]
+					  + dPgrid_fftw_expanded[INDMAP(xr,yr,zr)]
+					  )
+					  +
+					  (1.0 / 6.0) *
+					  ( dPgrid_fftw_expanded[INDMAP(xll,yll,zll)]
+					  - dPgrid_fftw_expanded[INDMAP(xrr,yrr,zrr)]
+					  )
+					  );*/
 					/* In the following Udim is the U index, dim is the derivative index. 
 					 * This means that gradU[0][1] is the y derivative of Ux for example*/
 					for( Udim=0; Udim<3 ; ++Udim ) 
@@ -3523,12 +3537,8 @@ void advance_DE_nonlinear(const fftw_real da){
 
 				for( dim=0 ;dim<3  ; ++dim )
 					U_prev[dim]=ugrid_DE[index][dim];
-				rho_plus_P=rhogrid_DE[index]+All.DarkEnergyW*mean_DE+dPgrid_fftw[fftw_index];
+				rho_plus_P=rhogrid_DE[index]+equation_of_state_DE(rhogrid_DE[index]);
 				rho_plus_P_reci=1/rho_plus_P;
-
-				Pdot=(dPgrid_fftw[fftw_index]-dPgrid[index])/da; //delta term
-				Pdot+=-3*All.DarkEnergyW*(1+All.DarkEnergyW)*mean_DE/All.Time; //Background term
-				Pdot*=a*a*H; //Change to time derivative
 
 				fftw_real divU=(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 				if(rho_plus_P<0){
@@ -3555,6 +3565,12 @@ void advance_DE_nonlinear(const fftw_real da){
 					-(U_prev[0]*gradP[0]+U_prev[1]*gradP[1]+U_prev[2]*gradP[2])
 					-(rho_plus_P)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 				drhoda_current=drhoda_current/(a*a*H);
+
+				Pdot=equation_of_state_derivative_DE(rhogrid_DE[index])*drhoda_current;
+				//Pdot=(dPgrid_fftw[fftw_index]-dPgrid[index])/da; //delta term
+				//Pdot+=-3*All.DarkEnergyW*(1+All.DarkEnergyW)*mean_DE/All.Time; //Background term
+				//Pdot*=a*a*H; //Change to time derivative
+
 
 				new_rhogrid_DE[index]=rhogrid_DE[index]+drhoda_current*da;
 
