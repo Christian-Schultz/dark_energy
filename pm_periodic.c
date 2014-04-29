@@ -214,9 +214,7 @@ int comm_order(int nslabs){
 
 /* One-time allocation of the dark energy arrays */
 void DE_allocate(int nx){
-
-
-	if(nx>0){
+	if(PMTask){
 		/* Expand the arrays with 4 extra slabs to store communication */
 #ifdef NONLINEAR_DE
 		master_printf("Code compiled with DYNAMICAL_DE, setting up non-linear dark energy environment\n");
@@ -3284,17 +3282,19 @@ void DE_IC(void){
 			}
 	/*Convert delta to rho */
 	rfftwnd_mpi(fft_inverse_plan, 1, dPgrid_fftw, workspace, FFTW_TRANSPOSED_ORDER);
-	for( x=0 ; x<nslab_x ; ++x )
-		for( y=0 ; y<PMGRID ; ++y )
-			for( z=0 ; z<PMGRID ; ++z )
-			{
-				ip=x*nslab_x*PMGRID+y*PMGRID+z;
-				rhogrid_DE[ip]=dPgrid_fftw[ip]*mean_DE+mean_DE;
-				for( i=0 ; i<3 ; ++i )
+	if(PMTask){
+		for( x=0 ; x<nslab_x ; ++x )
+			for( y=0 ; y<PMGRID ; ++y )
+				for( z=0 ; z<PMGRID ; ++z )
 				{
-					ugrid_DE[ip][i]=0;
+					ip=x*nslab_x*PMGRID+y*PMGRID+z;
+					rhogrid_DE[ip]=dPgrid_fftw[ip]*mean_DE+mean_DE;
+					for( i=0 ; i<3 ; ++i )
+					{
+						ugrid_DE[ip][i]=0;
+					}
 				}
-			}
+	}
 	/* Reset dPgrid to be 0 */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -3307,7 +3307,8 @@ void DE_IC(void){
 
 #else
 	const fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
-	rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
+	if(PMTask)
+		rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
 
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
@@ -3498,7 +3499,7 @@ void advance_DE_nonlinear(const fftw_real da){
 							+
 							(1.0 / 6.0) *
 							(  Pll 
-							  -Prr 
+							   -Prr 
 							)
 							);
 
