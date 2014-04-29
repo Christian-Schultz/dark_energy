@@ -3638,7 +3638,8 @@ void advance_DE_linear(const fftw_real da){
 
 	int x,y,z,ip;
 	int kx,ky,kz;
-	fftw_real k2;
+	unsigned long k2;
+	fftw_real k2_phys;
 	fftw_complex theta, phi, delta;
 	fftw_complex theta_dot,delta_dot;
 
@@ -3664,17 +3665,18 @@ void advance_DE_linear(const fftw_real da){
 				k2 = kx*kx + ky*ky + kz*kz ; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
 				if(k2==0)
 					continue;
-				k2=k2Norm*k2;
+				k2_phys=k2Norm*k2;
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
 				theta=ugrid_DE[ip];
 				phi=rhogrid_tot[ip];
 				delta=rhogrid_DE[ip];
 
-				delta_dot.re=-(1+w)*theta.re-3*(cs2-w)*a*H*delta.re-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.re;
-				delta_dot.im=-(1+w)*theta.im-3*(cs2-w)*a*H*delta.im-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2*theta.im;
+				delta_dot.re=-(1+w)*theta.re-3*(cs2-w)*a*H*delta.re-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.re;
+				delta_dot.im=-(1+w)*theta.im-3*(cs2-w)*a*H*delta.im-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.im;
 
-				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*k2/(1+w)*delta.re+k2*potfac*phi.re;
-				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*k2/(1+w)*delta.im+k2*potfac*phi.im;
+				/* Don't use k2_phys for potential term due to Gadget convention of the potential factor */
+				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*k2_phys/(1+w)*delta.re+k2*potfac*phi.re;
+				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*k2_phys/(1+w)*delta.im+k2*potfac*phi.im;
 
 				rhogrid_DE[ip].re+=delta_dot.re*a*a*H*da;
 				rhogrid_DE[ip].im+=delta_dot.im*a*a*H*da;
