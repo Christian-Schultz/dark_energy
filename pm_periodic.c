@@ -3013,7 +3013,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	unsigned int * k=my_malloc(nr_freq*sizeof(fftw_real));
 	int x,y,z,i,ip;
 
-	master_printf("Calculating power spectrum and saving to file %s. Mean delta: %.5e\n",fname,fft_arr[0]);
+	master_printf("Calculating power spectrum and saving to file %s.\n",fname);
 
 	for( i=0 ; i<nr_freq ; ++i )
 	{
@@ -3024,7 +3024,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	int nx,ny,nz;  /* Wavenumber in integer, to go from nx to kx multiply by kNorm*/
 	size_t kk; /* Length of k vector (to nearest integer) */
 	size_t zdim=PMGRID/2+1;
-	fftw_real  sigma_z, sigma_x, sigma_y, kR, sigma; /* Auxilliary variables */
+	fftw_real  sigma_z=0, sigma_x=0, sigma_y=0, kR=0, sigma=0; /* Auxilliary variables */
 	fftw_real k2, re_part, im_part; /* k squared and real and imaginary parts of fourier output */
 
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
@@ -3418,7 +3418,7 @@ void advance_DE_nonlinear(const fftw_real da){
 	fftw_real dUda[3]; /* dU/da */
 	fftw_real drhoda_current; /* dRho/da */
 	fftw_real Pdot; /* dP/c^2/dtau */
-	fftw_real Pll,Pl,Pr,Prr; /* Easy notation for gradient of pressure */
+	fftw_real Pll,Pl,Pr,Prr; /* Easy notation for pressure gradient of pressure */
 	fftw_real rho_plus_P; /* rho + P/c^2 */
 	fftw_real rho_plus_P_reci; /* 1/(rho + P/c^2) */
 	/* Temporary storage for the new density and velocity fields */
