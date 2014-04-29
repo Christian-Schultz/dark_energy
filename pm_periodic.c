@@ -655,7 +655,6 @@ void pmforce_periodic(void)
 
 	/* Calculate the power spectrum */
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
-	memcpy(workspace_powergrid,fft_of_rhogrid,fftsize);
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
 	fftw_real mean_DM=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark matter density in the universe */
@@ -667,9 +666,7 @@ void pmforce_periodic(void)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				/* Convert dimensionless delta to mass */
-				workspace_powergrid[ip].re/=temp;
-				workspace_powergrid[ip].im/=temp;
+				
 				if(x > PMGRID / 2)
 					kx = x - PMGRID;
 				else
@@ -706,9 +703,12 @@ void pmforce_periodic(void)
 						fz = sin(fz) / fz;
 					}
 					ff = 1 / (fx * fy * fz);
-					workspace_powergrid[ip].re*=ff*ff;
-					workspace_powergrid[ip].im*=ff*ff;
+					workspace_powergrid[ip].re=fft_of_rhogrid[ip].re*ff*ff;
+					workspace_powergrid[ip].im=fft_of_rhogrid[ip].im*ff*ff;
 					/* Done deconvolving */
+					/* Convert dimensionless delta to mass */
+					workspace_powergrid[ip].re/=temp;
+					workspace_powergrid[ip].im/=temp;
 				}
 			}
 
@@ -1467,10 +1467,10 @@ void pmforce_periodic_DE_nonlinear(void)
 					fft_of_rhogrid_tot[ip].im = -(rho_temp_DM.im+fft_of_rhogrid_tot[ip].im)/k2;
 					/* fft_of_rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
 					 * This means that fft_of_rhogrid_tot now contains the full dark matter + dark energy potential (except for a multiplicative constant that will be fixed in advance_DE_nonlinear) */
-					fft_of_dPgrid[ip].re=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.re+dP_prefactor*fft_of_dPgrid[ip].re/k2;
-					fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
-					fft_of_dPgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.im+dP_prefactor*fft_of_dPgrid[ip].im/k2;
-					fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
+					//fft_of_dPgrid[ip].re=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.re+dP_prefactor*fft_of_dPgrid[ip].re/k2;
+					//fft_of_dPgrid[ip].re/=PMGRID*PMGRID*PMGRID;
+					//fft_of_dPgrid[ip].im=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*rho_temp_DE.im+dP_prefactor*fft_of_dPgrid[ip].im/k2;
+					//fft_of_dPgrid[ip].im/=PMGRID*PMGRID*PMGRID;
 				}
 
 			}
@@ -3221,7 +3221,8 @@ void DE_IC(void){
 	const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (All.Time*All.Time*All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time*All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
 	const fftw_real mass_tot=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
-	const fftw_real fac_delta=(1+All.DarkEnergyW)*(1-2*cs2)/(1-3*All.DarkEnergyW+cs2);
+	const fftw_real fac_delta=(1.0+All.DarkEnergyW)*(1.0-2*cs2)/(1.0-3*All.DarkEnergyW+cs2);
+	master_printf("Dark energy suppression: %.3e\n",fac_delta);
 #ifdef NONLINEAR_DE
 	int i;
 	rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[ip].im=0;
@@ -3526,7 +3527,7 @@ void advance_DE_nonlinear(const fftw_real da){
 									)
 									+
 									(1.0 / 6.0) *
-									( ugrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll][Udim] 
+									(   ugrid_DE_expanded[(xll * PMGRID + yll) * PMGRID + zll][Udim] 
 									  - ugrid_DE_expanded[(xrr * PMGRID + yrr) * PMGRID + zrr][Udim]
 									)
 							       );
@@ -3544,18 +3545,14 @@ void advance_DE_nonlinear(const fftw_real da){
 				fftw_real divU=(gradU[0][0]+gradU[1][1]+gradU[2][2]);
 				if(rho_plus_P<0){
 					mpi_fprintf(stderr,"WARNING: rho+P<0 for point (%i, %i, %i).\n"
-							"Mean rho: %e, full rho: %e (drho: %e), P: %e (dP: %e), sum: %e\n"
-							"DivU: %e\n"
-							"Gauge term relative to cs term: %e\n",
+							"Mean rho: %e, full rho: %e (drho: %e), rho + P: %e\n"
+							"DivU: %e\n",
 							x-2+slabstart_x,y,z,
 							mean_DE,
 							rhogrid_DE[index], /* rho */
 							rhogrid_DE[index]-mean_DE, /* drho */
-							All.DarkEnergyW*mean_DE+dPgrid_fftw[fftw_index], /* P */
-							dPgrid_fftw[fftw_index], /* dP */
 							rho_plus_P, /* rho + P */
 							divU, /* sgn(divU) */
-							(dPgrid_fftw[fftw_index]-All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*(rhogrid_DE[index]-mean_DE))/(All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed*(rhogrid_DE[index]-mean_DE)) /* gauge term ratio */
 						   );
 					rho_plus_P_reci=0;
 				}
