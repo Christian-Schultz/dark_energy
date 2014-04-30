@@ -2024,7 +2024,9 @@ void pmforce_periodic_DE_linear(void)
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
 	const double pot_prefactor=3*(1+All.DarkEnergyW)*mean_DE*vol_fac*H*All.Time*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
-
+#ifdef DEBUG
+	master_printf("***Horizon suppression: %.4e\n",pot_prefactor);
+#endif
 	/* Dummy variable to store rho */
 	fftw_complex rho_temp_DM;
 
@@ -3632,7 +3634,7 @@ void advance_DE_linear(const fftw_real da){
 	const fftw_real lightspeed=C/All.UnitVelocity_in_cm_per_s;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)));
 	const fftw_real Hubble_len_inv=H/lightspeed;
-	const fftw_real cs2=All.DarkEnergySoundSpeed;
+	const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 	const fftw_real w=All.DarkEnergyW;
 	const fftw_real k2Norm=(2*M_PI/All.BoxSize)*(2*M_PI/All.BoxSize);
 
@@ -3642,8 +3644,20 @@ void advance_DE_linear(const fftw_real da){
 	fftw_real k2_phys;
 	fftw_complex theta, phi, delta;
 	fftw_complex theta_dot,delta_dot;
-
-	master_printf("Current Hubble length: %.4e ( %.4e Mpc). Inverse: %.4e ( %.4e Mpc)\n",1/Hubble_len_inv,1/Hubble_len_inv*All.UnitLength_in_cm/CM_PER_MPC,Hubble_len_inv,Hubble_len_inv*1/(All.UnitLength_in_cm/CM_PER_MPC));
+#ifdef DEBUG
+	master_printf("Current Hubble length: %.4e ( %.4e Mpc). Inverse: %.4e ( %.4e Mpc)\n"
+			"Horizon suppression aH/ck squared=%.4e\n"
+			"Current Hubble parameter= %.4e\n"
+			"C*2pi/B=%.4e\n",
+			1/Hubble_len_inv,
+			1/Hubble_len_inv*All.UnitLength_in_cm/CM_PER_MPC,
+			Hubble_len_inv,
+			Hubble_len_inv*1/(All.UnitLength_in_cm/CM_PER_MPC),
+			pow(a*H/(lightspeed*2*M_PI/All.BoxSize),2),
+			H,
+			pow(lightspeed*2*M_PI/All.BoxSize,2)
+			);
+#endif
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)			
@@ -3661,7 +3675,6 @@ void advance_DE_linear(const fftw_real da){
 				else
 					kz = z;
 
-
 				k2 = kx*kx + ky*ky + kz*kz ; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
 				if(k2==0)
 					continue;
@@ -3674,16 +3687,18 @@ void advance_DE_linear(const fftw_real da){
 				delta_dot.re=-(1+w)*theta.re-3*(cs2-w)*a*H*delta.re-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.re;
 				delta_dot.im=-(1+w)*theta.im-3*(cs2-w)*a*H*delta.im-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.im;
 
-				/* Don't use k2_phys for potential term due to Gadget convention of the potential factor */
-				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*k2_phys/(1+w)*delta.re+k2*potfac*phi.re;
-				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*k2_phys/(1+w)*delta.im+k2*potfac*phi.im;
+				/* Don't use k2_phys for potential term due to Gadget convention of the potential factor. 
+				 * It would make sense to simply save the k2*phi term from pmforce_periodic_DE_linear to
+				 * save some floating point operations. Kept to keep it easier to compare the code to standard
+				 * Gadget.*/
+				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.re+k2_phys*lightspeed*lightspeed*potfac*phi.re;
+				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.im+k2_phys*lightspeed*lightspeed*potfac*phi.im;
 
 				rhogrid_DE[ip].re+=delta_dot.re*a*a*H*da;
 				rhogrid_DE[ip].im+=delta_dot.im*a*a*H*da;
 
 				ugrid_DE[ip].re+=theta_dot.re*a*a*H*da;
 				ugrid_DE[ip].im+=theta_dot.im*a*a*H*da;
-
 			}
 
 }
