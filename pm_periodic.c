@@ -3687,12 +3687,11 @@ void advance_DE_linear(const fftw_real da){
 				delta_dot.re=-(1+w)*theta.re-3*(cs2-w)*a*H*delta.re-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.re;
 				delta_dot.im=-(1+w)*theta.im-3*(cs2-w)*a*H*delta.im-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.im;
 
-				/* Don't use k2_phys for potential term due to Gadget convention of the potential factor. 
-				 * It would make sense to simply save the k2*phi term from pmforce_periodic_DE_linear to
+				/* It would make sense to simply save the k2*phi term from pmforce_periodic_DE_linear to
 				 * save some floating point operations. Kept to keep it easier to compare the code to standard
 				 * Gadget.*/
-				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.re+k2_phys*lightspeed*lightspeed*potfac*phi.re;
-				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.im+k2_phys*lightspeed*lightspeed*potfac*phi.im;
+				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.re+k2_phys*potfac*phi.re;
+				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.im+k2_phys*potfac*phi.im;
 
 				rhogrid_DE[ip].re+=delta_dot.re*a*a*H*da;
 				rhogrid_DE[ip].im+=delta_dot.im*a*a*H*da;
