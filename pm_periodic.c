@@ -83,6 +83,7 @@ static FLOAT to_slab_fac;
 
 void CIC(int*,int*); /* Cloud-in-Cell interpolation moved to seperate function */
 void calc_powerspec(char *,fftw_complex *); /* Calculate the power spectrum of an array */
+void calc_powerspec_detailed(char *,fftw_complex *); /* Alternative way to calculate the power spectrum. Currently unused */
 static short int PMTask=0; /* Does this task contribute to the FFT? */
 void write_header(FILE *); /* Header written to grid snapshots */
 void write_dm_grid(char *); /* Write the dark matter grid to file */
@@ -92,7 +93,6 @@ static short int first_DE_run=1; /* Is this the initial run? */
 void DE_IC(void);  /* Dark energy initial conditions */
 void write_de_grid(char *); /* Write the dark energy grid to file */
 void write_U_grid(char *); /* Write the divergence of U to file */
-void calc_powerspec_alternative(char *,fftw_complex *); /* Alternative way to calculate the power spectrum. Currently unused */
 
 #ifdef NONLINEAR_DE /* Only relevant for the non linear (barotropic) dark energy */
 void advance_DE_nonlinear(fftw_real); /* Function prototype for the routine responsible for advancing the nonlinear dark energy density and velocity perturbations*/
@@ -718,8 +718,11 @@ void pmforce_periodic(void)
 			}
 
 	char fname_power[256];
-	sprintf(fname_power,"%s/power/DM_power_a=%.3f",All.OutputDir,All.Time);
-	calc_powerspec(fname_power,workspace_powergrid);
+	sprintf(fname_power,"%s%s_DM_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	if(All.DetailedPowerOn)
+		calc_powerspec_detailed(fname_power,workspace_powergrid);
+	else
+		calc_powerspec(fname_power,workspace_powergrid);
 
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
@@ -1204,8 +1207,8 @@ void pmforce_periodic_DE_nonlinear(void)
 	}
 
 	/* Print simulation statistics to file */
-	sprintf(statname,"%s%s",All.OutputDir,All.DarkEnergyStatFile);
-	pm_stats(statname);
+	//sprintf(statname,"%s%s",All.OutputDir,All.DarkEnergyStatFile);
+	//pm_stats(statname);
 
 
 #endif
@@ -1290,7 +1293,7 @@ void pmforce_periodic_DE_nonlinear(void)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				
+
 				if(x > PMGRID / 2)
 					kx = x - PMGRID;
 				else
@@ -1335,10 +1338,13 @@ void pmforce_periodic_DE_nonlinear(void)
 					workspace_powergrid[ip].im/=temp;
 				}
 			}
-	
+
 	char fname_power[256];
-	sprintf(fname_power,"%s/power/DM_power_a=%.3f",All.OutputDir,All.Time);
-	calc_powerspec(fname_power,workspace_powergrid);
+	sprintf(fname_power,"%s%s_DM_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	if(All.DetailedPowerOn)
+		calc_powerspec_detailed(fname_power,workspace_powergrid);
+	else
+		calc_powerspec(fname_power,workspace_powergrid);
 
 	/* Prepare to calculate dark energy power spectrum */
 	workspace_powergrid[0].re=0;
@@ -1355,8 +1361,12 @@ void pmforce_periodic_DE_nonlinear(void)
 				workspace_powergrid[ip].re=fft_of_rhogrid_tot[ip].re/temp;
 				workspace_powergrid[ip].im=fft_of_rhogrid_tot[ip].im/temp;
 			}
-	sprintf(fname_power,"%s/power/DE_power_a=%.3f",All.OutputDir,All.Time);
-	calc_powerspec(fname_power,workspace_powergrid);
+	sprintf(fname_power,"%s%s_DE_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	if(All.DetailedPowerOn)
+		calc_powerspec_detailed(fname_power,workspace_powergrid);
+	else
+		calc_powerspec(fname_power,workspace_powergrid);
+
 
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
@@ -1389,7 +1399,7 @@ void pmforce_periodic_DE_nonlinear(void)
 	fftw_complex rho_temp_DE, rho_temp_DM;
 	/* Conversion from integer k to comoving k. Needs additional 1/scalefactor to be physical k */
 	/* multiply with the Green's function for the potential, deconvolve.
-	 */
+	*/
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
@@ -2018,14 +2028,18 @@ void pmforce_periodic_DE_linear(void)
 			}
 
 	char fname_power[256];
-	sprintf(fname_power,"%s/power/DM_power_a=%.3f",All.OutputDir,All.Time);
-	calc_powerspec(fname_power,workspace_powergrid);
+	sprintf(fname_power,"%s%s_DM_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	if(All.DetailedPowerOn)
+		calc_powerspec_detailed(fname_power,workspace_powergrid);
+	else
+		calc_powerspec(fname_power,workspace_powergrid);
 
-	//	sprintf(fname_power,"%s/power/ALT_DM_power_a=%.3f",All.OutputDir,All.Time);
-	//	calc_powerspec_alternative(fname_power,workspace_powergrid);
 
-	sprintf(fname_power,"%s/power/DE_power_a=%.3f",All.OutputDir,All.Time);
-	calc_powerspec(fname_power,rhogrid_DE);
+	sprintf(fname_power,"%s%s_DE_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	if(All.DetailedPowerOn)
+		calc_powerspec_detailed(fname_power,workspace_powergrid);
+	else
+		calc_powerspec(fname_power,workspace_powergrid);
 
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
@@ -3120,7 +3134,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 						num_z[kk-1]+=1;
 
 						/* Sigma8 calculation */
-						k2=kNorm*sqrt( k2);
+						k2=kNorm*sqrt((double) k2);
 						kR=k2*tophat_scale;
 						kR=3.0*(sin(kR)-kR*cos(kR))/pow(kR,3);
 						sigma_z+=power_z[kk-1]*kR*kR*k2*k2;	
@@ -3150,12 +3164,11 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	/* Normalize wavenumbers and power to correct values */
 	for(i=0 ; i<nr_freq ; ++i )
 	{
-		//	k[i]=kNorm*sqrt(k[i]);
 		power_y[i]/=num_y[i];
 	}
 
 	sigma=sigma_y;
-	sigma*=1./(2*M_PI*M_PI)*pow(tophat_scale,3);
+	sigma*=1./(2*M_PI*M_PI)*4.0/3*M_PI*pow(tophat_scale,3);
 	sigma=sqrt(sigma);
 
 	if(ThisTask==0){
@@ -3167,11 +3180,11 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 		else{
 			fprintf(fid,"sigma%.2f=%.5e, PMGRID=%i, Boxsize=%.8e.\n",
 					tophat_scale*(All.UnitLength_in_cm/CM_PER_MPC),sigma,PMGRID,All.BoxSize);
-			fprintf(fid,"k2\tmodes\tpower\n");
+			fprintf(fid,"k\tmodes\tpower\n");
 
 			size_t freq;
 			for( freq=0 ; freq<nr_freq ; ++freq ){
-				fprintf(fid,"%u\t%i\t%.5e\n",k[freq],num_y[freq],power_y[freq]);
+				fprintf(fid,"%.5e\t%i\t%.5e\n",sqrt((double) k[freq]),num_y[freq],power_y[freq]);
 			}
 			fclose(fid);
 		}
@@ -3184,6 +3197,134 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	free(num_y);
 	free(num_z);
 	free(k);
+}
+
+/* Calculate the power spectrum with all allowed k2 modes. 
+ * More noisy, but makes a customised binning possible.  */
+void calc_powerspec_detailed(char * fname, fftw_complex* fft_arr){
+	const int Nyquist=PMGRID/2;
+	/* Maximum number of different k2 modes in box below Nyquist */
+	const int k2_max=3*Nyquist*Nyquist;
+	int x,y,z, ip, nx, ny, nz;
+	int zdim=PMGRID/2+1;
+	unsigned long int k2;
+
+	int * k2_multi=my_malloc(k2_max*sizeof(int)); /* Multiplicity of a given k2 index. */
+	fftw_real * power_arr=my_malloc(k2_max*sizeof(fftw_real)); /* Power at a given k */
+
+	for( k2=0 ; k2<k2_max ; ++k2 )
+	{
+		k2_multi[k2]=0;
+		power_arr[k2]=0;
+	}
+
+	const fftw_real kNorm=2.0*M_PI/(All.BoxSize);
+	const fftw_real tophat_scale=8*CM_PER_MPC/All.UnitLength_in_cm;
+
+	fftw_real  kR; /* Auxilliary variable */
+	fftw_real re_part, im_part; /* k squared and real and imaginary parts of fourier output */
+
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x=0 ; x<PMGRID ; ++x )
+			for( z=0 ; z<zdim ; ++z ){
+				if( x>Nyquist )
+					nx=x-PMGRID;
+				else
+					nx=x;
+				if( y>Nyquist )
+					ny=y-PMGRID;
+				else
+					ny=y;
+				if(z>Nyquist )
+					nz=z-PMGRID;
+				else
+					nz=z;
+
+				k2=nx*nx+ny*ny+nz*nz;
+				if(k2==0)
+					continue;
+
+				/* Symmetry removing part */
+				if( z==0 || z == Nyquist )
+				{
+					if(ny<= 0 && nx <= 0)
+					{
+						continue;
+					}
+					if( nx>=0 && ny<=0 )
+					{
+						if(abs(ny)>nx)
+						{
+							continue;
+						}
+					}
+					if( nx<=0 && ny>=0 )
+					{
+						if( abs(nx)>=ny )
+						{
+							continue;
+						}
+					}
+
+				}
+
+				k2_multi[k2]+=1; /* Increase k2 multiplicity. k2 itself is the index */
+
+				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+
+				re_part=fft_arr[ip].re;
+				im_part=fft_arr[ip].im;
+				power_arr[k2]+=re_part*re_part+im_part*im_part; //This is the power. Will normalize later
+			}
+	MPI_Allreduce(MPI_IN_PLACE,k2_multi,k2_max,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
+	MPI_Allreduce(MPI_IN_PLACE,power_arr,k2_max,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
+
+	for( k2=0 ; k2<k2_max ; ++k2 )
+	{
+		power_arr[k2]=power_arr[k2]/k2_multi[k2];
+	}
+
+	fftw_real k;
+	fftw_real sigma=0;
+	for( k2=0 ;k2<k2_max  ; ++k2 )
+	{
+		if(k2_multi[k2]==0)
+			continue;
+		k=kNorm*sqrt((double) k2);
+		kR=k*tophat_scale;
+		kR=3.0*(sin(kR)-kR*cos(kR))/pow(kR,3);
+		sigma+=power_arr[k2]*kR*kR*k*k;	
+	}
+
+	MPI_Allreduce(MPI_IN_PLACE,&sigma,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
+
+	sigma*=1./(2*M_PI*M_PI)*4.0/3*M_PI*pow(tophat_scale,3);	
+	sigma=sqrt(sigma);
+
+	fftw_real power;
+	if(ThisTask==0){
+		FILE *fid;
+		fid=fopen(fname,"w");
+		if(!fid){
+			fprintf(stderr,"Error opening file: %s: %s.\n",fname,strerror(errno));
+		}
+		else{
+			fprintf(fid,"sigma%.2f=%.5e, PMGRID=%i, Boxsize=%.8e.\n",
+					tophat_scale*(All.UnitLength_in_cm/CM_PER_MPC),sigma,PMGRID,All.BoxSize);
+			fprintf(fid,"k\tmodes\tpower\n");
+
+			for( k2=0 ; k2<k2_max ; ++k2 ){
+				if(k2_multi[k2]==0)
+					continue;
+				power=power_arr[k2];
+				fprintf(fid,"%.5e\t%i\t%.5e\n",kNorm*sqrt((double) k2),k2_multi[k2],power);
+			}
+			fclose(fid);
+		}
+	}
+	free(k2_multi);
+	free(power_arr);
+
 }
 
 void write_dm_grid(char* fname_DM){
@@ -3380,19 +3521,22 @@ void DE_IC(void){
 }
 
 #ifdef NONLINEAR_DE
-/* The equation of stat for the dark energy. Be sure to get the units right (in Gadget units with h=1).
- * Customise this function according to your favorite model.*/
+/* The equation of state for the dark energy. Be sure to get the units right (in Gadget units with h=1).
+ * Customise this function according to your favorite model.
+ * This function ought to be an integrated part of the advance_DE_nonlinear function for performance.
+ * It is kept here as a seperate function for convenience (with the hope that the compiler will inline it)*/
 inline fftw_real equation_of_state_DE(fftw_real rho){
 	fftw_real P;
-	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)*All.UnitEnergy_in_cgs;
+	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G);
 	P=2*rho/(1+exp(-2*(rho-rho_inf)/rho_inf))-2*rho;
 	return P;
 }
 
-/* Gives the derivative dP/drho (that is: the sound speed) from the dark energy equation of state */
+/* Gives the derivative dP/drho (that is: the sound speed) from the dark energy equation of state.
+ * As above, this function ought to be integrated into advance_DE_nonlinear.*/
 inline fftw_real equation_of_state_derivative_DE(fftw_real rho){
 	fftw_real dP_drho;
-	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)*All.UnitEnergy_in_cgs;
+	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G);
 	fftw_real exponent=exp(-2*(rho-rho_inf)/rho_inf);
 	dP_drho=2/(1+exponent)-2+2*rho/rho_inf*exponent*pow((1+exponent),-2);
 	return dP_drho;
@@ -3564,7 +3708,7 @@ void advance_DE_nonlinear(const fftw_real da){
 
 				/* Change to drho/da */
 				drhoda_current=drhoda_current/(a*a*H);
-				
+
 				/* Update the density pertubation */
 				new_rhogrid_DE[index]=rhogrid_DE[index]+drhoda_current*da;
 
@@ -3682,132 +3826,9 @@ void advance_DE_linear(const fftw_real da){
 
 
 
-void calc_powerspec_alternative(char * fname, fftw_complex* fft_arr){
-	const int Nyquist=PMGRID/2;
-	/* Maximum number of different k2 modes in box below Nyquist */
-	const int k2_max=3*Nyquist*Nyquist;
-	int x,y,z, ip, nx, ny, nz;
-	int zdim=PMGRID/2+1;
-	unsigned long int k2;
-
-	int * k2_multi=my_malloc(k2_max*sizeof(int)); /* Multiplicity of a given k2 index. */
-	fftw_real * power_arr=my_malloc(k2_max*sizeof(fftw_real)); /* Power at a given k */
-
-	for( k2=0 ; k2<k2_max ; ++k2 )
-	{
-		k2_multi[k2]=0;
-		power_arr[k2]=0;
-	}
-
-	const fftw_real kNorm=2.0*M_PI/(All.BoxSize);
-	const fftw_real tophat_scale=8*CM_PER_MPC/All.UnitLength_in_cm;
-
-	fftw_real  kR; /* Auxilliary variable */
-	fftw_real re_part, im_part; /* k squared and real and imaginary parts of fourier output */
-
-	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
-		for(x=0 ; x<PMGRID ; ++x )
-			for( z=0 ; z<zdim ; ++z ){
-				if( x>Nyquist )
-					nx=x-PMGRID;
-				else
-					nx=x;
-				if( y>Nyquist )
-					ny=y-PMGRID;
-				else
-					ny=y;
-				if(z>Nyquist )
-					nz=z-PMGRID;
-				else
-					nz=z;
-
-				k2=nx*nx+ny*ny+nz*nz;
-				if(k2==0)
-					continue;
-
-				/* Symmetry removing part */
-				if( z==0 || z == Nyquist )
-				{
-					if(ny<= 0 && nx <= 0)
-					{
-						continue;
-					}
-					if( nx>=0 && ny<=0 )
-					{
-						if(abs(ny)>nx)
-						{
-							continue;
-						}
-					}
-					if( nx<=0 && ny>=0 )
-					{
-						if( abs(nx)>=ny )
-						{
-							continue;
-						}
-					}
-
-				}
-
-				k2_multi[k2]+=1; /* Increase k2 multiplicity. k2 itself is the index */
-
-				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-
-				re_part=fft_arr[ip].re;
-				im_part=fft_arr[ip].im;
-				power_arr[k2]+=re_part*re_part+im_part*im_part; //This is the power. Will normalize later
-			}
-	MPI_Allreduce(MPI_IN_PLACE,k2_multi,k2_max,MPI_INT,MPI_SUM,MPI_COMM_WORLD);
-	MPI_Allreduce(MPI_IN_PLACE,power_arr,k2_max,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
-
-	for( k2=0 ; k2<k2_max ; ++k2 )
-	{
-		power_arr[k2]=power_arr[k2]/k2_multi[k2];
-	}
-
-	fftw_real k;
-	fftw_real sigma=0;
-	for( k2=0 ;k2<k2_max  ; ++k2 )
-	{
-		if(k2_multi[k2]==0)
-			continue;
-		k=kNorm*sqrt((double) k2);
-		kR=k*tophat_scale;
-		kR=3.0*(sin(kR)-kR*cos(kR))/pow(kR,3);
-		sigma+=power_arr[k2]*kR*kR*k*k;	
-	}
-
-	MPI_Allreduce(MPI_IN_PLACE,&sigma,1,FFTW_MPITYPE,MPI_SUM,MPI_COMM_WORLD);
-
-	sigma*=1./(2*M_PI*M_PI)*pow(tophat_scale,3);
-	sigma=sqrt(sigma);
-
-	fftw_real power;
-	if(ThisTask==0){
-		FILE *fid;
-		fid=fopen(fname,"w");
-		if(!fid){
-			fprintf(stderr,"Error opening file: %s: %s.\n",fname,strerror(errno));
-		}
-		else{
-			fprintf(fid,"sigma%.2f=%.5e, PMGRID=%i, Boxsize=%.8e.\n",
-					tophat_scale*(All.UnitLength_in_cm/CM_PER_MPC),sigma,PMGRID,All.BoxSize);
-
-			for( k2=0 ; k2<k2_max ; ++k2 ){
-				if(k2_multi[k2]==0)
-					continue;
-				power=power_arr[k2];
-				fprintf(fid,"%lu\t%i\t%.5e\n",k2,k2_multi[k2],power);
-			}
-			fclose(fid);
-		}
-	}
-	free(k2_multi);
-	free(power_arr);
-
-}
 #endif
 
+#ifdef DEBUG
 #ifdef NONLINEAR_DE
 void pm_stats(char* fname){
 	FILE *fd;
@@ -3944,7 +3965,7 @@ void pm_stats(char* fname){
 		fclose(fd);
 }
 #endif //NONLINEAR_DE
-
+#endif
 
 
 

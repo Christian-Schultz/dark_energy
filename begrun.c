@@ -338,6 +338,14 @@ void read_parameter_file(char *fname)
       addr[nt] = All.SnapshotFileBase;
       id[nt++] = STRING;
 
+      strcpy(tag[nt], "PowerFileBase");
+      addr[nt] = All.PowerFileBase;
+      id[nt++] = STRING;
+
+      strcpy(tag[nt], "DetailedPowerOn");
+      addr[nt] = All.DetailedPowerOn;
+      id[nt++] = INT;
+
       strcpy(tag[nt], "EnergyFile");
       addr[nt] = All.EnergyFile;
       id[nt++] = STRING;
