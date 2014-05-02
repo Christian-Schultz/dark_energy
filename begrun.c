@@ -343,7 +343,7 @@ void read_parameter_file(char *fname)
       id[nt++] = STRING;
 
       strcpy(tag[nt], "DetailedPowerOn");
-      addr[nt] = All.DetailedPowerOn;
+      addr[nt] = &All.DetailedPowerOn;
       id[nt++] = INT;
 
       strcpy(tag[nt], "EnergyFile");
