@@ -78,7 +78,7 @@ void hydro_force(void)
 	if(All.ComovingIntegrationOn)
 	{
 		/* Factors for comoving integration of hydro */
-#if defined DYNAMICAL_DE || DE_BACKGROUND
+#if defined DYNAMICAL_DE || defined DE_BACKGROUND
 		hubble_a = All.Omega0 / (All.Time * All.Time * All.Time)
 			+ (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW));
 #else

@@ -180,7 +180,7 @@ double get_hydrokick_factor(int time0, int time1)
 double drift_integ(double a, void *param)
 {
 	double h;
-#if defined DYNAMICAL_DE || DE_BACKGROUND
+#if defined DYNAMICAL_DE || defined DE_BACKGROUND
 	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
 	h = All.Hubble * sqrt(h);
 #else
@@ -197,7 +197,7 @@ double gravkick_integ(double a, void *param)
 {
 	double h;
 
-#if defined DYNAMICAL_DE || DE_BACKGROUND
+#if defined DYNAMICAL_DE || defined DE_BACKGROUND
 	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
 	h = All.Hubble * sqrt(h);
 #else
@@ -215,7 +215,7 @@ double gravkick_integ(double a, void *param)
 double hydrokick_integ(double a, void *param)
 {
 	double h;
-#if defined DYNAMICAL_DE || DE_BACKGROUND
+#if defined DYNAMICAL_DE || defined DE_BACKGROUND
 	h = All.Omega0 / (a * a * a) + (1 - All.Omega0 - All.OmegaLambda) / (a * a) + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW));
 	h = All.Hubble * sqrt(h);
 #else
@@ -230,7 +230,7 @@ double growthfactor_integ(double a, void *param)
 {
 	double s;
 
-#if defined DYNAMICAL_DE || DE_BACKGROUND
+#if defined DYNAMICAL_DE || defined DE_BACKGROUND
 	s = All.Omega0 + (1 - All.Omega0 - All.OmegaLambda) * a + All.OmegaLambda/pow(a,3.0*(1+All.DarkEnergyW)) * a * a * a;
 #else
 	s = All.Omega0 + (1 - All.Omega0 - All.OmegaLambda) * a + All.OmegaLambda * a * a * a;
