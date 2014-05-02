@@ -49,8 +49,10 @@
 #endif
 
 #ifndef DYNAMICAL_DE
+#ifdef NONLINEAR_DE
 #warning "WARNING: NONLINEAR_DE defined, but DYNAMICAL_DE is not. Check the makefile."
 #undef NONLINEAR_DE
+#endif
 #endif
 
 /* Dark energy macros */
@@ -1373,9 +1375,8 @@ void pmforce_periodic_DE_nonlinear(void)
 	if(slabstart_y == 0 && PMTask)
 		fft_of_divU[0].re = fft_of_divU[0].im = 0.0;
 	/* Dark energy pressure conversion factors */
-	double pot_prefactor=3*(1+All.DarkEnergyW)*mean_DE*H*All.Time*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
-	const double cs2_adiabatic=All.DarkEnergyW;//TODO: Fix this later
-	pot_prefactor*=vol_fac;
+	const double pot_prefactor=3*(1+All.DarkEnergyW)*mean_DE*vol_fac*H*All.Time*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
+
 #ifdef DEBUG
 	fftw_complex P_std, P_gauge_std;
 	P_std.re=P_std.im=P_gauge_std.re=P_gauge_std.im=0;
@@ -1387,7 +1388,8 @@ void pmforce_periodic_DE_nonlinear(void)
 	/* Dummy variables to store rho */
 	fftw_complex rho_temp_DE, rho_temp_DM;
 	/* Conversion from integer k to comoving k. Needs additional 1/scalefactor to be physical k */
-	/* multiply with the Green's function for the potential, deconvolve */
+	/* multiply with the Green's function for the potential, deconvolve.
+	 */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
@@ -1519,7 +1521,9 @@ void pmforce_periodic_DE_nonlinear(void)
 	/* Do the FFT of rhogrid_tot to get the total potential of the singly deconvolved dm + unconvolved de */
 	rfftwnd_mpi(fft_inverse_plan, 1, rhogrid_tot, workspace, FFTW_TRANSPOSED_ORDER);
 
-	/* Now rhogrid holds the potential */
+	/* Now rhogrid holds the potential.
+	 * rhogrid_tot holds the potential to be used for the dark energy,
+	 * but lacks a factor of G/(pi*a*boxsize) which is the standard Gagdet potential factor seen elsewhere.*/
 	/* construct the potential for the local patch */
 
 	dimx = meshmax[0] - meshmin[0] + 6;
@@ -1823,7 +1827,11 @@ void pmforce_periodic_DE_nonlinear(void)
 	}
 }
 #else
-/* Linear dark energy */
+/* Main function responsible for coupling dark matter and dark energy through the potential.
+ * Will also advance the dark energy grid.
+ * Note that in case linear dark energy is triggered the dark energy density grid
+ * rhogrid_DE is the dark energy density contrast (delta) and ugrid_DE is the divergence of the velocity (divU).
+ * TODO: Fix code when running on a single process (probably in comm order). */
 void pmforce_periodic_DE_linear(void)
 {
 	double k2, kx, ky, kz, smth;
@@ -1840,7 +1848,8 @@ void pmforce_periodic_DE_linear(void)
 	MPI_Status status;
 	char statname[MAXLEN_FILENAME];
 
-	double fac_FD, temp;
+	double fac_FD; /* Finite difference factor */
+	double temp; /* Merge temp with fftw_real divU */
 	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;
 	const double H=All.Hubble*sqrt(All.Omega0 / (All.Time * All.Time * All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time * All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
 
@@ -1950,6 +1959,7 @@ void pmforce_periodic_DE_linear(void)
 	}
 #endif
 
+	/* Prepare to calculate the dark matter power spectrum */
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
@@ -2104,7 +2114,7 @@ void pmforce_periodic_DE_linear(void)
 			}
 	/* The rhogrid_tot potential array isn't needed and some memory could be saved by keeping everything in the rhogrid array */
 
-	/* Subtract mean */
+	/* Set mean to zero */
 	if(slabstart_y == 0 && PMTask) 
 		rhogrid_tot[0].re = rhogrid_tot[0].im = 0.0;
 
@@ -2115,7 +2125,7 @@ void pmforce_periodic_DE_linear(void)
 	rfftwnd_mpi(fft_inverse_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 	/* Note: The inverse FFT scales the data by PMGRID*PMGRID*PMGRID */
 
-	/* Now rhogrid holds the potential, rhogrid_tot holds the k-space total potential (except for a factor G/(pi*BoxSize*a) */
+	/* Now rhogrid holds the potential, rhogrid_tot holds the k2*phi term */
 	/* construct the potential for the local patch */
 
 	dimx = meshmax[0] - meshmin[0] + 6;
@@ -3370,10 +3380,10 @@ void DE_IC(void){
 }
 
 #ifdef NONLINEAR_DE
-
+/* The equation of stat for the dark energy. Be sure to get the units right (in Gadget units with h=1).
+ * Customise this function according to your favorite model.*/
 inline fftw_real equation_of_state_DE(fftw_real rho){
 	fftw_real P;
-	/* TODO: Needs to be relative to h */
 	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)*All.UnitEnergy_in_cgs;
 	P=2*rho/(1+exp(-2*(rho-rho_inf)/rho_inf))-2*rho;
 	return P;
@@ -3384,11 +3394,13 @@ inline fftw_real equation_of_state_derivative_DE(fftw_real rho){
 	fftw_real dP_drho;
 	const fftw_real rho_inf=0.95*All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)*All.UnitEnergy_in_cgs;
 	fftw_real exponent=exp(-2*(rho-rho_inf)/rho_inf);
-	/* TODO: Needs to be relative to h */
 	dP_drho=2/(1+exponent)-2+2*rho/rho_inf*exponent*pow((1+exponent),-2);
 	return dP_drho;
 }
 
+/* Advance the dark energy peturbations through the continuity and Euler equation. 
+ * Assumes that the dark energy pertubations are parametrised in the full density and 3-d velocity. 
+ * Everything is in real space.*/
 void advance_DE_nonlinear(const fftw_real da){
 	const double fac_FD = 1 / (2.0 * All.BoxSize / PMGRID);	/* for finite differencing. Factor 1/2 is part of the FD coefficients, could be moved there as well */
 	const double potfac =All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential */
@@ -3421,6 +3433,7 @@ void advance_DE_nonlinear(const fftw_real da){
 	fftw_real (*new_ugrid_DE)[3]=new_ugrid_DE_expanded+2*PMGRID*PMGRID;
 
 #ifdef DEBUG
+	/* Sanity check to make sure we stay unrelativistic */
 	fftw_real U_sq=0;
 #endif
 	/* Finite differences
@@ -3523,6 +3536,8 @@ void advance_DE_nonlinear(const fftw_real da){
 				rho_plus_P_reci=1/rho_plus_P;
 
 				fftw_real divU=(gradU[0][0]+gradU[1][1]+gradU[2][2]);
+				/* Unphysical to have rho+P<0 due to the weak energy condition in GR.
+				 * Establish sanity check.*/
 				if(rho_plus_P<0){
 					mpi_fprintf(stderr,"WARNING: rho+P<0 for point (%i, %i, %i).\n"
 							"Mean rho: %e, full rho: %e (drho: %e), rho + P: %e\n"
@@ -3537,18 +3552,24 @@ void advance_DE_nonlinear(const fftw_real da){
 					rho_plus_P_reci=0;
 				}
 
+				/* Calculate drho/dt (conformal time) */
 				drhoda_current=
 					-3.0*a*H*rho_plus_P
 					-(U_prev[0]*gradrho[0]+U_prev[1]*gradrho[1]+U_prev[2]*gradrho[2])
 					-(U_prev[0]*gradP[0]+U_prev[1]*gradP[1]+U_prev[2]*gradP[2])
 					-(rho_plus_P)*(gradU[0][0]+gradU[1][1]+gradU[2][2]);
-				drhoda_current=drhoda_current/(a*a*H);
 
+				/* Calculate dP/dt=dP/drho*drho/dt */
 				Pdot=equation_of_state_derivative_DE(rhogrid_DE[index])*drhoda_current;
 
+				/* Change to drho/da */
+				drhoda_current=drhoda_current/(a*a*H);
+				
+				/* Update the density pertubation */
 				new_rhogrid_DE[index]=rhogrid_DE[index]+drhoda_current*da;
 
 #ifdef DEBUG
+				/* Sanity check */
 				if(new_rhogrid_DE[index]<0){
 					new_rhogrid_DE[index]=0;
 					mpi_fprintf(stderr,"WARNING: Negative dark energy rho\n");
@@ -3556,6 +3577,7 @@ void advance_DE_nonlinear(const fftw_real da){
 
 				U_sq=0;
 #endif
+				/* Update the velocity pertubation */
 				for( dim=0 ;dim<3  ; ++dim )
 				{
 					dUda[dim]=
@@ -3564,9 +3586,12 @@ void advance_DE_nonlinear(const fftw_real da){
 						-lightspeed*lightspeed*gradP[dim]*rho_plus_P_reci
 						-U_prev[dim]*Pdot*rho_plus_P_reci
 						-gradphi[dim]; 
+					/* Change from dot U to dU/da */
 					dUda[dim]=dUda[dim]/(a*a*H);
 					new_ugrid_DE[index][dim]=ugrid_DE[index][dim]+dUda[dim]*da;
+
 #ifdef DEBUG
+					/* Speed sanity check. Needs to be safely below the speed of light. */
 					U_sq+=new_ugrid_DE[index][dim]*new_ugrid_DE[index][dim];
 #endif
 				}
@@ -3596,8 +3621,8 @@ void advance_DE_nonlinear(const fftw_real da){
 	ugrid_DE=ugrid_DE_expanded+2*PMGRID*PMGRID;
 }
 #else
+/* Advance the linear pertubations on the grid. Everything is in Fourier space unlike the non-linear case. */
 void advance_DE_linear(const fftw_real da){
-	//	const fftw_real potfac =-All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential */
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
 	const fftw_real a=All.Time;
 	const fftw_real lightspeed=C/All.UnitVelocity_in_cm_per_s;
@@ -3613,20 +3638,7 @@ void advance_DE_linear(const fftw_real da){
 	fftw_real k2_phys;
 	fftw_complex theta, phi, delta;
 	fftw_complex theta_dot,delta_dot;
-#ifdef DEBUG
-	master_printf("Current Hubble length: %.4e ( %.4e Mpc). Inverse: %.4e ( %.4e Mpc)\n"
-			"Horizon suppression aH/ck squared=%.4e\n"
-			"Current Hubble parameter= %.4e\n"
-			"C*2pi/B=%.4e\n",
-			1/Hubble_len_inv,
-			1/Hubble_len_inv*All.UnitLength_in_cm/CM_PER_MPC,
-			Hubble_len_inv,
-			Hubble_len_inv*1/(All.UnitLength_in_cm/CM_PER_MPC),
-			pow(a*H/(lightspeed*2*M_PI/All.BoxSize),2),
-			H,
-			pow(lightspeed*2*M_PI/All.BoxSize,2)
-		     );
-#endif
+
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)			
@@ -3656,14 +3668,9 @@ void advance_DE_linear(const fftw_real da){
 				delta_dot.re=-(1+w)*theta.re-3*(cs2-w)*a*H*delta.re-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.re;
 				delta_dot.im=-(1+w)*theta.im-3*(cs2-w)*a*H*delta.im-9*(1+w)*(cs2-w)*a*a*Hubble_len_inv*Hubble_len_inv/k2_phys*theta.im;
 
-				/* It would make sense to simply save the k2*phi term from pmforce_periodic_DE_linear to
-				 * save some floating point operations. Kept to keep it easier to compare the code to standard
-				 * Gadget.*/
-				//				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.re+k2_phys*potfac*phi.re;
-				//				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.im+k2_phys*potfac*phi.im;
-
 				theta_dot.re=-(1-3*cs2)*a*H*theta.re+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.re+phi.re;
 				theta_dot.im=-(1-3*cs2)*a*H*theta.im+cs2*lightspeed*lightspeed*k2_phys/(1+w)*delta.im+phi.im;
+
 				rhogrid_DE[ip].re+=delta_dot.re/(a*a*H)*da;
 				rhogrid_DE[ip].im+=delta_dot.im/(a*a*H)*da;
 
