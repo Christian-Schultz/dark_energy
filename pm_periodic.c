@@ -3212,6 +3212,8 @@ void calc_powerspec_detailed(char * fname, fftw_complex* fft_arr){
 	int * k2_multi=my_malloc(k2_max*sizeof(int)); /* Multiplicity of a given k2 index. */
 	fftw_real * power_arr=my_malloc(k2_max*sizeof(fftw_real)); /* Power at a given k */
 
+	master_printf("Calculating power spectrum and saving to file %s.\n",fname);
+	
 	for( k2=0 ; k2<k2_max ; ++k2 )
 	{
 		k2_multi[k2]=0;
