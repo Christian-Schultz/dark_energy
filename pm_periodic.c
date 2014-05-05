@@ -60,8 +60,9 @@
 #define INDMAP(i,j,k) ((i)*PMGRID*PMGRID2+(j)*PMGRID2+k) /* Map (i,j,k) in 3 dimensional array (dimx X PMGRID X PMGRID2) to 1 dimensional array */
 
 #ifdef DEBUG
-#define SHOUT(x) do{if(x) mpi_printf("SHOUT: !(" #x ")\n");} while(0)
 void pm_stats(char *);
+/* Debugging macros. If the while(0) was not included the macros would be dangerous to insert inside blocks of code */
+#define SHOUT(x) do{if(x) mpi_printf("SHOUT: !(" #x ")\n");} while(0)
 #define FILELINE do{if(x) master_printf("At %s:%i\n",__FILE__,__LINE__);} while(0)
 #endif
 
@@ -3379,7 +3380,7 @@ void DE_IC(void){
 	const fftw_real fac_delta=(1.0+All.DarkEnergyW)*(1.0-2*cs2)/(1.0-3*All.DarkEnergyW+cs2);
 	master_printf("Dark energy suppression: %.3e\n",fac_delta);
 #ifdef NONLINEAR_DE
-	int i;
+	int i,index;
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
@@ -3435,18 +3436,27 @@ void DE_IC(void){
 
 
 			}
-	/*Convert delta to rho. divU_grid is not the divergence of the velocity, it is merely a workspace */
+	/* divU_grid is not the divergence of the velocity, it is merely a workspace
+	 * Do inverse FFT to get the values in real space */
 	rfftwnd_mpi(fft_inverse_plan, 1, divU_grid, workspace, FFTW_TRANSPOSED_ORDER);
 	if(PMTask){
 		for( x=0 ; x<nslab_x ; ++x )
 			for( y=0 ; y<PMGRID ; ++y )
 				for( z=0 ; z<PMGRID ; ++z )
 				{
-					ip=x*nslab_x*PMGRID+y*PMGRID+z;
-					rhogrid_DE[ip]=divU_grid[ip]*mean_DE+mean_DE;
+					/* FFT array indexing */
+					ip = INDMAP(x,y,z);
+					/* Standard indexing */
+					index=x*PMGRID*PMGRID+y*PMGRID+z;
+					
+					/* Relative mass pertubation */
+					rhogrid_tot[ip]=divU_grid[ip];
+					/* Full rho */
+					rhogrid_DE[index]=(divU_grid[ip]+1)*mean_DE;
+					
 					for( i=0 ; i<3 ; ++i )
 					{
-						ugrid_DE[ip][i]=0;
+						ugrid_DE[index][i]=0;
 					}
 				}
 	}
