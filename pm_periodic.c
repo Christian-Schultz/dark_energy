@@ -672,7 +672,7 @@ void pmforce_periodic(void)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				
+
 				if(x > PMGRID / 2)
 					kx = x - PMGRID;
 				else
@@ -3093,9 +3093,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 				{
 					kk=floor(sqrt(k2)+0.5); //Norm of k squared (0.5 factor rounds it to nearest integer)
 
-#ifdef DEBUG
-					assert(kk>=1);
-#endif
+
 					if( kk <= nr_freq && kk >= 1 )
 					{
 						/* Symmetry removing part */
@@ -3214,7 +3212,7 @@ void calc_powerspec_detailed(char * fname, fftw_complex* fft_arr){
 	fftw_real * power_arr=my_malloc(k2_max*sizeof(fftw_real)); /* Power at a given k */
 
 	master_printf("Calculating power spectrum and saving to file %s.\n",fname);
-	
+
 	for( k2=0 ; k2<k2_max ; ++k2 )
 	{
 		k2_multi[k2]=0;
@@ -3320,7 +3318,7 @@ void calc_powerspec_detailed(char * fname, fftw_complex* fft_arr){
 				if(k2_multi[k2]==0)
 					continue;
 				power=power_arr[k2];
-				fprintf(fid,"%.5e\t%i\t%.5e\n",kNorm*sqrt((double) k2),k2_multi[k2],power);
+				fprintf(fid,"%.5e\t%i\t%.5e\n",sqrt((double) k2),k2_multi[k2],power);
 			}
 			fclose(fid);
 		}
@@ -3448,19 +3446,26 @@ void DE_IC(void){
 					ip = INDMAP(x,y,z);
 					/* Standard indexing */
 					index=x*PMGRID*PMGRID+y*PMGRID+z;
-					
-					/* Relative mass pertubation */
-					rhogrid_tot[ip]=divU_grid[ip];
+
 					/* Full rho */
 					rhogrid_DE[index]=(divU_grid[ip]+1)*mean_DE;
-					
+
 					for( i=0 ; i<3 ; ++i )
 					{
 						ugrid_DE[index][i]=0;
 					}
 				}
 	}
-
+	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+		for(x = 0; x < PMGRID; x++)
+			for(z = 0; z < PMGRID / 2 + 1; z++)
+			{
+				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+				/* Relative mass pertubation */
+				rhogrid_tot[ip]=divU_grid[ip];
+				/* Reset divergence */
+				divU_grid[ip]=0;
+			}
 
 #else
 	const fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
