@@ -634,7 +634,14 @@ extern struct io_header
 	int flag_metals;                     /*!< flags whether the file contains metallicity values for gas and star particles */
 	unsigned int npartTotalHighWord[6];  /*!< High word of the total number of particles of each type */
 	int  flag_entropy_instead_u;         /*!< flags that IC-file contains entropy instead of u */
+#if defined DYNAMICAL_DE || defined DE_BACKGROUND
+	double DarkEnergyW;
+	double DarkEnergySoundSpeed;
+	char fill[44];
+#else
 	char fill[60];	               /*!< fills to 256 Bytes */
+#endif
+	
 }
 header;                               /*!< holds header for snapshot files */
 
