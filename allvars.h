@@ -637,7 +637,7 @@ extern struct io_header
 #if defined DYNAMICAL_DE || defined DE_BACKGROUND
 	double DarkEnergyW;
 	double DarkEnergySoundSpeed;
-	char fill[44];
+	char fill[36]; /* Note that this should be 60-2*8=44. However, sizeof(struct)!=sum of sizeof(elements) due to memory alignment. */
 #else
 	char fill[60];	               /*!< fills to 256 Bytes */
 #endif
