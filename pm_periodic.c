@@ -1075,6 +1075,8 @@ void pmforce_periodic_DE_nonlinear(void)
 
 	mean_DM=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark matter density in the universe */
 	mean_DE=All.OmegaLambda*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0*(1+All.DarkEnergyW)); /* Mean dark energy density in the universe */
+	/* Change w to be consistent with a barotropic model */
+	All.DarkEnergyW=equation_of_state_DE(mean_DE)/mean_DE;
 
 	force_treefree();
 
@@ -2035,7 +2037,6 @@ void pmforce_periodic_DE_linear(void)
 	else
 		calc_powerspec(fname_power,workspace_powergrid);
 
-
 	sprintf(fname_power,"%s%s_DE_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
 	if(All.DetailedPowerOn)
 		calc_powerspec_detailed(fname_power,workspace_powergrid);
@@ -2047,9 +2048,6 @@ void pmforce_periodic_DE_linear(void)
 	const double pot_prefactor=3*(1+All.DarkEnergyW)*mean_DE*vol_fac*H*All.Time*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
 	const fftw_real dm_fac=1/(All.Time*All.Time*All.Time*All.BoxSize*All.BoxSize*All.BoxSize);
 	const fftw_real u_fac=3*(1+All.DarkEnergyW)*All.Time*H*pow(All.BoxSize/(2*M_PI*lightspeed),2);
-#ifdef DEBUG
-	master_printf("***Horizon suppression: %.4e\n",pot_prefactor);
-#endif
 	/* Dummy variable to store rho */
 	fftw_complex rho_temp_DM;
 

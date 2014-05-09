@@ -760,7 +760,10 @@ void write_file(char *fname, int writeTask, int lastTask)
 	header.OmegaLambda = All.OmegaLambda;
 	header.HubbleParam = All.HubbleParam;
 
-
+#if defined DYNAMICAL_DE || defined DE_BACKGROUND
+	header.DarkEnergyW=All.DarkEnergyW;
+	header.DarkEnergySoundSpeed=All.DarkEnergySoundSpeed;
+#endif
 	/* open file and write header */
 
 	if(ThisTask == writeTask)
