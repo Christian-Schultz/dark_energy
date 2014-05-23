@@ -3471,7 +3471,11 @@ void DE_IC(void){
 		FILE *fd;
 		char fname[MAXLEN_FILENAME];
 		sprintf(fname,"%s",All.DarkEnergyInitCondFile);
-		fd=fopen(fname,"r");
+		if(!(fd=fopen(fname,"r"))){
+			fprintf(stderr,"Could not open file %s to read dark energy initial conditions\n"
+					"Error: %s\n"
+					,fname,strerror(errno))
+		}
 		double Time;
 		double BoxSize;
 		double NaN;
