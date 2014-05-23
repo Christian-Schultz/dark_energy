@@ -415,6 +415,9 @@ void pm_init_periodic_allocate(int dimprod)
 		if(ThisTask == 0)
 			printf("\nAllocated %g MByte for FFT data.\n\n", bytes_tot / (1024.0 * 1024.0));
 	}
+	/* CHRISTIAN: rhogrid and fft_of_grid pointing to the same memory breaks the strict aliasing rule.
+	 * This is bad. What makes it okay is that fftw_complex is fundamentally two (properly aligned in the struct) fftw_real.
+	 */
 	fft_of_rhogrid = (fftw_complex *) & rhogrid[0];
 }
 
@@ -1060,7 +1063,6 @@ void pmforce_periodic_DE_nonlinear(void)
 	int rep, ncont, cont_sendmin[2], cont_sendmax[2], cont_recvmin[2], cont_recvmax[2];
 	int dimx, dimy, dimz, recv_dimx, recv_dimy, recv_dimz;
 	MPI_Status status;
-	char statname[MAXLEN_FILENAME];
 
 	double fac_FD; /* Finite difference factor */
 	double temp; /* Merge temp with fftw_real divU */
@@ -1208,11 +1210,6 @@ void pmforce_periodic_DE_nonlinear(void)
 		write_U_grid(fname_U);
 		++Nruns;
 	}
-
-	/* Print simulation statistics to file */
-	//sprintf(statname,"%s%s",All.OutputDir,All.DarkEnergyStatFile);
-	//pm_stats(statname);
-
 
 #endif
 
@@ -1859,7 +1856,6 @@ void pmforce_periodic_DE_linear(void)
 	int rep, ncont, cont_sendmin[2], cont_sendmax[2], cont_recvmin[2], cont_recvmax[2];
 	int dimx, dimy, dimz, recv_dimx, recv_dimy, recv_dimz;
 	MPI_Status status;
-	char statname[MAXLEN_FILENAME];
 
 	double fac_FD; /* Finite difference factor */
 	double temp; /* Merge temp with fftw_real divU */
@@ -1929,6 +1925,9 @@ void pmforce_periodic_DE_linear(void)
 			     );
 		DE_allocate(nslab_x);
 	}
+	if(first_DE_run)
+		DE_IC();
+
 
 	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
 
@@ -1959,8 +1958,8 @@ void pmforce_periodic_DE_linear(void)
 	/* Do the FFT of the dark matter density field */
 	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 
-	if(first_DE_run)
-		DE_IC();
+//	if(first_DE_run)
+//		DE_IC();
 
 #ifdef DEBUG
 	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
@@ -2104,8 +2103,8 @@ void pmforce_periodic_DE_linear(void)
 
 					rho_temp_DM=fft_of_rhogrid[ip];
 
-					rhogrid_tot[ip].re=(rhogrid_tot[ip].re+pot_prefactor*ugrid_DE[ip].re/k2)*PMGRID*PMGRID*PMGRID;
-					rhogrid_tot[ip].im=(rhogrid_tot[ip].im+pot_prefactor*ugrid_DE[ip].im/k2)*PMGRID*PMGRID*PMGRID;
+					rhogrid_tot[ip].re=(rhogrid_tot[ip].re+pot_prefactor*ugrid_DE[ip].re/k2);
+					rhogrid_tot[ip].im=(rhogrid_tot[ip].im+pot_prefactor*ugrid_DE[ip].im/k2);
 
 					/* Now do second deconvolution of dark matter potential, and a single deconvolution of the dark energy potential (corresponding to the CIC from the grid to the particles). 
 					 * Multiply with the Green's function and smoothing kernel. 
@@ -2114,8 +2113,7 @@ void pmforce_periodic_DE_linear(void)
 					fft_of_rhogrid[ip].im = -ff*ff*(smth*rho_temp_DM.im+rhogrid_tot[ip].im)/k2;
 					/* fft_of_rhogrid now contains FFT(rhogrid)*DC*DC+FFT(rhogrid_DE)*DC where DC is the deconvolution kernel (the Green's function and smoothing kernel have also been applied) */
 
-					//	rhogrid_tot[ip].re = -(rho_temp_DM.re+rhogrid_tot[ip].re)/k2;
-					//	rhogrid_tot[ip].im = -(rho_temp_DM.im+rhogrid_tot[ip].im)/k2;
+					/* Poisson equation in co-moving coordinates with physical densities */	
 					rhogrid_tot[ip].re = -4*M_PI*All.G*All.Time*All.Time*(dm_fac*rho_temp_DM.re+mean_DE*(rhogrid_DE[ip].re+u_fac*ugrid_DE[ip].re/k2));
 					rhogrid_tot[ip].im = -4*M_PI*All.G*All.Time*All.Time*(dm_fac*rho_temp_DM.im+mean_DE*(rhogrid_DE[ip].im+u_fac*ugrid_DE[ip].im/k2));
 					/* rhogrid_tot now contains FFT(rhogrid)*DC+FFT(rhogrid_DE) where DC is the deconvolution kernel. No smoothing has been done.
@@ -3366,15 +3364,17 @@ void write_header(FILE* fd){
 }
 
 #ifdef DYNAMICAL_DE
+/* TODO: Allocate DE arrays when this function is called and not before.  */
 void DE_IC(void){
 	int x,y,z,ip;
-	int kx,ky,kz,k2;
-	fftw_real fx,fy,fz, ff;
-	const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
+	//int kx,ky,kz,k2;
+	//fftw_real fx,fy,fz, ff;
+	//const fftw_real cs2=All.DarkEnergySoundSpeed*All.DarkEnergySoundSpeed;
 	const fftw_real H=All.Hubble*sqrt(All.Omega0 / (All.Time*All.Time*All.Time) + (1 - All.Omega0 - All.OmegaLambda) / (All.Time*All.Time) + All.OmegaLambda/pow(All.Time,3.0*(1+All.DarkEnergyW)));
-	const fftw_real mass_tot=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
-	const fftw_real fac_delta=(1.0+All.DarkEnergyW)*(1.0-2*cs2)/(1.0-3*All.DarkEnergyW+cs2);
-	master_printf("Dark energy suppression: %.3e\n",fac_delta);
+	//const fftw_real mass_tot=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
+	//const fftw_real fac_delta=(1.0+All.DarkEnergyW)*(1.0-2*cs2)/(1.0-3*All.DarkEnergyW+cs2);
+	//const fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
+	//master_printf("Dark energy suppression: %.3e\n",fac_delta);
 #ifdef NONLINEAR_DE
 	int i,index;
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
@@ -3466,70 +3466,154 @@ void DE_IC(void){
 			}
 
 #else
-	const fftw_real fac_U=(-1+6*cs2*(cs2-All.DarkEnergyW)/(1-3*All.DarkEnergyW+cs2))*H*All.Time;
-	if(PMTask)
-		rhogrid_DE[0].re=rhogrid_DE[0].im=ugrid_DE[0].re=ugrid_DE[0].im=0;
+	fftw_real *real_space_rhogrid=(fftw_real*) rhogrid_DE;
+	if(ThisTask==0){
+		FILE *fd;
+		char fname[MAXLEN_FILENAME];
+		sprintf(fname,"%s",All.DarkEnergyInitCondFile);
+		fd=fopen(fname,"r");
+		double Time;
+		double BoxSize;
+		double NaN;
+		unsigned int GridSize;
+		fread(&Time,sizeof(double),1,fd);
+		fread(&BoxSize,sizeof(double),1,fd);
+		fread(&NaN,sizeof(double),1,fd);
+		fread(&NaN,sizeof(double),1,fd);
+		fread(&GridSize,sizeof(double),1,fd);
+		if(Time!=All.Time){
+			fprintf(stderr,"Error: Dark energy initial conditions does not match the current time\nTerminating\n");
+			endrun(-1);
+		}
+		if(BoxSize!=All.BoxSize){
+			fprintf(stderr,"Error: Dark energy initial conditions does not match the box size\nTerminating\n");
+			endrun(-1);
+		}
+		if(GridSize!=PMGRID){
+			fprintf(stderr,"Error: Dark energy initial conditions grid size does not match PMGRID\nTerminating\n");
+			endrun(-1);
+		}
 
+		int task=0,slabs;
+
+		/* Some type casts are needed since IC is of type float,
+		 * while fftw_real may be of type double depending on DOUBLEPRECISION_FFTW */
+		float *read_buffer=my_malloc(nslab_x*PMGRID*PMGRID*sizeof(float));
+		fread(read_buffer,sizeof(float),nslab_x*PMGRID*PMGRID,fd);
+		for( x=0 ; x<nslab_x ; ++x )
+			for( y=0 ; y<PMGRID ; ++y )
+				for( z=0 ; z<PMGRID ; ++z )
+				{
+					ip=x*PMGRID*PMGRID2+y*PMGRID2+z;
+					real_space_rhogrid[ip]=(fftw_real) read_buffer[x*PMGRID*PMGRID+y*PMGRID+z];
+				}
+
+		for( task=1 ; task<NTask ; ++task )
+		{
+			slabs=slabs_per_task[task];
+			if(slabs==0)
+				continue;
+			fread(read_buffer,sizeof(float),slabs*PMGRID*PMGRID,fd);
+			for( x=0 ; x<slabs ; ++x )
+				for( y=0 ; y<PMGRID ; ++y )
+					for( z=0 ; z<PMGRID ; ++z )
+					{
+						ip=x*PMGRID*PMGRID+y*PMGRID+z;
+						workspace[INDMAP(x,y,z)]=(fftw_real) read_buffer[ip];
+					}
+			MPI_Send(workspace,slabs*PMGRID*PMGRID,FFTW_MPITYPE,task,task,MPI_COMM_WORLD);
+		}
+
+		free(read_buffer);
+#ifdef DEBUG
+		long unsigned int filepos;
+		filepos=ftell(fd);
+		fseek(fd,0,SEEK_END);
+		if(filepos!=ftell(fd)){
+			fprintf(stderr,"Error: Didn't read whole IC file. Read %lu of %lu\n",filepos,ftell(fd));
+			endrun(-1);
+		}
+
+#endif
+	}
+	else{
+		MPI_Status status;
+		if(PMTask)
+			MPI_Recv(real_space_rhogrid,nslab_x*PMGRID*PMGRID2,FFTW_MPITYPE,0,ThisTask,MPI_COMM_WORLD,&status);
+	}
+
+
+	rfftwnd_mpi(fft_forward_plan, 1, real_space_rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
 		for(x = 0; x < PMGRID; x++)
 			for(z = 0; z < PMGRID / 2 + 1; z++)
 			{
-
 				ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
-				/* Convert dimensionless delta to mass */
-				if(x > PMGRID / 2)
-					kx = x - PMGRID;
-				else
-					kx = x;
-				if(y > PMGRID / 2)
-					ky = y - PMGRID;
-				else
-					ky = y;
-				if(z > PMGRID / 2)
-					kz = z - PMGRID;
-				else
-					kz = z;
-
-				k2 = kx * kx + ky * ky + kz * kz; /* Note: k2 is the integer wave number squared. The physical k is k_phys=2 M_PI/BoxSize k */
-
-				if(k2 > 0)
-				{
-					/* Deconvolution */
-					/* Note: Actual deconvolution is sinc(k_phys BoxSize/(2*PMGRID)), but in the code k = k_phys/(2*M_MPI)*BoxSize  */
-					fx = fy = fz = 1;
-					if(kx != 0)
-					{
-						fx = (M_PI * kx) / PMGRID;
-						fx = sin(fx) / fx;
-					}
-					if(ky != 0)
-					{
-						fy = (M_PI * ky) / PMGRID;
-						fy = sin(fy) / fy;
-					}
-					if(kz != 0)
-					{
-						fz = (M_PI * kz) / PMGRID;
-						fz = sin(fz) / fz;
-					}
-					ff = 1 / (fx * fy * fz);
-					rhogrid_DE[ip].re=fft_of_rhogrid[ip].re*ff*ff;
-					rhogrid_DE[ip].im=fft_of_rhogrid[ip].im*ff*ff;
-					ugrid_DE[ip].re=fft_of_rhogrid[ip].re*ff*ff;          			
-					ugrid_DE[ip].im=fft_of_rhogrid[ip].im*ff*ff;			
-					/* Done deconvolving */
-					rhogrid_DE[ip].re=fac_delta*rhogrid_DE[ip].re/mass_tot;
-					rhogrid_DE[ip].im=fac_delta*rhogrid_DE[ip].im/mass_tot;
-					ugrid_DE[ip].re=fac_U*ugrid_DE[ip].re/mass_tot;
-					ugrid_DE[ip].im=fac_U*ugrid_DE[ip].im/mass_tot;
-				}
-				else{
-					rhogrid_DE[ip].re=0;
-					rhogrid_DE[ip].im=0;
-					ugrid_DE[ip].re=0;
-					ugrid_DE[ip].im=0;
-				}
+				/* Not really this value, but close enough */
+				ugrid_DE[ip].re=rhogrid_DE[ip].re*All.Time*H;
+				ugrid_DE[ip].im=rhogrid_DE[ip].im*All.Time*H;
 			}
+
+	/*
+	   for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
+	   for(x = 0; x < PMGRID; x++)
+	   for(z = 0; z < PMGRID / 2 + 1; z++)
+	   {
+
+	   ip = PMGRID * (PMGRID / 2 + 1) * (y - slabstart_y) + (PMGRID / 2 + 1) * x + z;
+	//	Convert dimensionless delta to mass
+	if(x > PMGRID / 2)
+	kx = x - PMGRID;
+	else
+	kx = x;
+	if(y > PMGRID / 2)
+	ky = y - PMGRID;
+	else
+	ky = y;
+	if(z > PMGRID / 2)
+	kz = z - PMGRID;
+	else
+	kz = z;
+
+	k2 = kx * kx + ky * ky + kz * kz; 
+
+	if(k2 > 0)
+	{
+	// Deconvolution 
+	fx = fy = fz = 1;
+	if(kx != 0)
+	{
+	fx = (M_PI * kx) / PMGRID;
+	fx = sin(fx) / fx;
+	}
+	if(ky != 0)
+	{
+	fy = (M_PI * ky) / PMGRID;
+	fy = sin(fy) / fy;
+	}
+	if(kz != 0)
+	{
+	fz = (M_PI * kz) / PMGRID;
+	fz = sin(fz) / fz;
+	}
+	ff = 1 / (fx * fy * fz);
+	rhogrid_DE[ip].re=fft_of_rhogrid[ip].re*ff*ff;
+	rhogrid_DE[ip].im=fft_of_rhogrid[ip].im*ff*ff;
+	ugrid_DE[ip].re=fft_of_rhogrid[ip].re*ff*ff;          			
+	ugrid_DE[ip].im=fft_of_rhogrid[ip].im*ff*ff;			
+	// Done deconvolving
+	rhogrid_DE[ip].re=fac_delta*rhogrid_DE[ip].re/mass_tot;
+	rhogrid_DE[ip].im=fac_delta*rhogrid_DE[ip].im/mass_tot;
+	ugrid_DE[ip].re=fac_U*ugrid_DE[ip].re/mass_tot;
+	ugrid_DE[ip].im=fac_U*ugrid_DE[ip].im/mass_tot;
+	}
+	else{
+	rhogrid_DE[ip].re=0;
+	rhogrid_DE[ip].im=0;
+	ugrid_DE[ip].re=0;
+	ugrid_DE[ip].im=0;
+	}
+	}*/
 #endif
 
 	master_printf("Done with dark energy initial conditions\n");
@@ -3562,7 +3646,7 @@ inline fftw_real equation_of_state_derivative_DE(fftw_real rho){
  * Everything is in real space.*/
 void advance_DE_nonlinear(const fftw_real da){
 	const double fac_FD = 1 / (2.0 * All.BoxSize / PMGRID);	/* for finite differencing. Factor 1/2 is part of the FD coefficients, could be moved there as well */
-	const double potfac =All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential */
+	const double potfac =All.G / (All.Time*M_PI * All.BoxSize);	/* to get potential. Factor of All.Time is because rho and phi are physical and not comoving */
 	/* Provide easier notation (some of these will be removed by the compiler optimiser anyway) */
 	const double a=All.Time;
 	const double lightspeed=C/All.UnitVelocity_in_cm_per_s;

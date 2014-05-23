@@ -342,6 +342,10 @@ void read_parameter_file(char *fname)
       addr[nt] = All.PowerFileBase;
       id[nt++] = STRING;
 
+      strcpy(tag[nt], "DarkEnergyInitCondFile");
+      addr[nt] = All.DarkEnergyInitCondFile;
+      id[nt++] = STRING;
+
       strcpy(tag[nt], "DetailedPowerOn");
       addr[nt] = &All.DetailedPowerOn;
       id[nt++] = INT;

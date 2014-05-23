@@ -475,6 +475,7 @@ int DetailedPowerOn;             /*!< Flag that notes if the power spectrum calc
   char OutputDir[MAXLEN_FILENAME];             /*!< output directory of the code */
   char SnapshotFileBase[MAXLEN_FILENAME];      /*!< basename to construct the names of snapshotf files */
   char PowerFileBase[MAXLEN_FILENAME];      /*!< CHRISTIAN: Basename for power spectrum files */
+  char DarkEnergyInitCondFile[MAXLEN_FILENAME];      /*!< CHRISTIAN: Dark energy IC file */
   char EnergyFile[MAXLEN_FILENAME];            /*!< name of file with energy statistics */
   char CpuFile[MAXLEN_FILENAME];               /*!< name of file with cpu-time statistics */
   char InfoFile[MAXLEN_FILENAME];              /*!< name of log-file with a list of the timesteps taken */
