@@ -3486,15 +3486,18 @@ void DE_IC(void){
 		fread(&NaN,sizeof(double),1,fd);
 		fread(&GridSize,sizeof(double),1,fd);
 		if(Time!=All.Time){
-			fprintf(stderr,"Error: Dark energy initial conditions does not match the current time\nTerminating\n");
+			fprintf(stderr,"Error: Dark energy initial conditions does not match the current time\n"
+					"Current time: %e, IC time: %e\nTerminating\n",All.Time,Time);
 			endrun(-1);
 		}
 		if(BoxSize!=All.BoxSize){
-			fprintf(stderr,"Error: Dark energy initial conditions does not match the box size\nTerminating\n");
+			fprintf(stderr,"Error: Dark energy initial conditions does not match the box size\n"
+					"Box size: %e, IC box size: %e\nTerminating\n",All.BoxSize,BoxSize);
 			endrun(-1);
 		}
 		if(GridSize!=PMGRID){
-			fprintf(stderr,"Error: Dark energy initial conditions grid size does not match PMGRID\nTerminating\n");
+			fprintf(stderr,"Error: Dark energy initial conditions grid size does not match PMGRID\n"
+					"PMGRID: %u, IC grid size: %e\nTerminating\n",(unsigned int) PMGRID, GridSize);
 			endrun(-1);
 		}
 
