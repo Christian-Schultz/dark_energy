@@ -81,7 +81,7 @@ void long_range_force(void)
   }
   T_static=T_temp;
 #endif
-  if(All.Time>=All.DarkEnergyBegin && All.Time!=All.TimeBegin) /* Can't run dark energy pm part for the first timestep since the time constraints needs to be calculated first */
+  if(All.Time>=All.DarkEnergyBegin) /* Can't run dark energy pm part for the first timestep since the time constraints needs to be calculated first */
   {
 #ifdef NONLINEAR_DE
 	  pmforce_periodic_DE_nonlinear();
