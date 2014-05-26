@@ -3497,7 +3497,7 @@ void DE_IC(void){
 		}
 		if(GridSize!=PMGRID){
 			fprintf(stderr,"Error: Dark energy initial conditions grid size does not match PMGRID\n"
-					"PMGRID: %u, IC grid size: %e\nTerminating\n",(unsigned int) PMGRID, GridSize);
+					"PMGRID: %u, IC grid size: %u\nTerminating\n",(unsigned int) PMGRID, GridSize);
 			endrun(-1);
 		}
 
