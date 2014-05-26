@@ -91,7 +91,7 @@ void write_dm_grid(char *); /* Write the dark matter grid to file */
 
 #ifdef DYNAMICAL_DE
 static short int first_DE_run=1; /* Is this the initial run? */
-void DE_IC(void);  /* Dark energy initial conditions */
+void initialize_dark_energy(void);  /* Dark energy initial conditions */
 void write_de_grid(char *); /* Write the dark energy grid to file */
 void write_U_grid(char *); /* Write the divergence of U to file */
 
@@ -1219,7 +1219,7 @@ void pmforce_periodic_DE_nonlinear(void)
 	fftw_real divU=0; /* Merge this with temp */
 	/* Initial conditions for the dark energy */
 	if(first_DE_run){
-		DE_IC();
+		initialize_dark_energy();
 	}
 	else{
 
@@ -1926,7 +1926,7 @@ void pmforce_periodic_DE_linear(void)
 		DE_allocate(nslab_x);
 	}
 	if(first_DE_run)
-		DE_IC();
+		initialize_dark_energy();
 
 
 	const double vol_fac=(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.BoxSize/PMGRID)*(All.Time*All.Time*All.Time); /* Physical volume factor. Converts from density to mass */		
@@ -3365,7 +3365,7 @@ void write_header(FILE* fd){
 
 #ifdef DYNAMICAL_DE
 /* TODO: Allocate DE arrays when this function is called and not before.  */
-void DE_IC(void){
+void initialize_dark_energy(void){
 	int x,y,z,ip;
 	//int kx,ky,kz,k2;
 	//fftw_real fx,fy,fz, ff;
@@ -3485,10 +3485,11 @@ void DE_IC(void){
 		fread(&NaN,sizeof(double),1,fd);
 		fread(&NaN,sizeof(double),1,fd);
 		fread(&GridSize,sizeof(double),1,fd);
-		if(Time!=All.Time){
-			fprintf(stderr,"Error: Dark energy initial conditions does not match the current time\n"
-					"Current time: %e, IC time: %e\nTerminating\n",All.Time,Time);
-			endrun(-1);
+		if(Time!=All.DarkEnergyBegin){ /*TODO: Remove time option to start DE in parameterfile for consistency */
+				fprintf(stderr,"Error: Dark energy initial conditions does not match the parameter file time specified\n"
+						"Current time: %e, IC time: %e\nTerminating\n",All.Time,Time);
+				endrun(-1);
+			
 		}
 		if(BoxSize!=All.BoxSize){
 			fprintf(stderr,"Error: Dark energy initial conditions does not match the box size\n"
