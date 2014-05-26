@@ -3474,7 +3474,7 @@ void DE_IC(void){
 		if(!(fd=fopen(fname,"r"))){
 			fprintf(stderr,"Could not open file %s to read dark energy initial conditions\n"
 					"Error: %s\n"
-					,fname,strerror(errno))
+					,fname,strerror(errno));
 		}
 		double Time;
 		double BoxSize;
