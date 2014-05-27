@@ -2038,9 +2038,9 @@ void pmforce_periodic_DE_linear(void)
 
 	sprintf(fname_power,"%s%s_DE_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
 	if(All.DetailedPowerOn)
-		calc_powerspec_detailed(fname_power,workspace_powergrid);
+		calc_powerspec_detailed(fname_power,rhogrid_DE);
 	else
-		calc_powerspec(fname_power,workspace_powergrid);
+		calc_powerspec(fname_power,rhogrid_DE);
 
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
