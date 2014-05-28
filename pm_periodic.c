@@ -83,8 +83,8 @@ static fftw_complex *fft_of_rhogrid;
 static FLOAT to_slab_fac;
 
 void CIC(int*,int*); /* Cloud-in-Cell interpolation moved to seperate function */
-void calc_powerspec(char *,fftw_complex *); /* Calculate the power spectrum of an array */
-void calc_powerspec_detailed(char *,fftw_complex *); /* Alternative way to calculate the power spectrum. Currently unused */
+void calc_powerspec(char *,fftw_complex *,fftw_real); /* Calculate the power spectrum of an array */
+void calc_powerspec_detailed(char *,fftw_complex *,fftw_real); /* Alternative way to calculate the power spectrum. Currently unused */
 static short int PMTask=0; /* Does this task contribute to the FFT? */
 void write_header(FILE *); /* Header written to grid snapshots */
 void write_dm_grid(char *); /* Write the dark matter grid to file */
@@ -667,7 +667,6 @@ void pmforce_periodic(void)
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
 	fftw_real mean_DM=All.Omega0*3.0*All.Hubble*All.Hubble/(8.0*M_PI*All.G)/pow(All.Time,3.0); /* Mean dark matter density in the universe */
-	fftw_real temp=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
 	/* Translate mass grid to delta (doesn't subtract the mean as this is only relevant for the zero mode).
 	 * Deconvolve. */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
@@ -715,18 +714,16 @@ void pmforce_periodic(void)
 					workspace_powergrid[ip].re=fft_of_rhogrid[ip].re*ff*ff;
 					workspace_powergrid[ip].im=fft_of_rhogrid[ip].im*ff*ff;
 					/* Done deconvolving */
-					/* Convert dimensionless delta to mass */
-					workspace_powergrid[ip].re/=temp;
-					workspace_powergrid[ip].im/=temp;
 				}
 			}
 
 	char fname_power[256];
 	sprintf(fname_power,"%s%s_DM_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	fftw_real pNorm=1.0/(pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM); /* Total mass in simulation */
 	if(All.DetailedPowerOn)
-		calc_powerspec_detailed(fname_power,workspace_powergrid);
+		calc_powerspec_detailed(fname_power,workspace_powergrid,pNorm);
 	else
-		calc_powerspec(fname_power,workspace_powergrid);
+		calc_powerspec(fname_power,workspace_powergrid,pNorm);
 
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
@@ -1975,7 +1972,6 @@ void pmforce_periodic_DE_linear(void)
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
 	workspace_powergrid[0].re=0;
 	workspace_powergrid[0].im=0;
-	temp=pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM; /* Total mass in simulation */
 	/* Translate mass grid to delta (doesn't subtract the mean as this is only relevant for the zero mode).
 	 * Deconvolve. */
 	for(y = slabstart_y; y < slabstart_y + nslab_y; y++)
@@ -2023,24 +2019,23 @@ void pmforce_periodic_DE_linear(void)
 					workspace_powergrid[ip].re=fft_of_rhogrid[ip].re*ff*ff;
 					workspace_powergrid[ip].im=fft_of_rhogrid[ip].im*ff*ff;
 					/* Done deconvolving */
-					/* Convert dimensionless delta to mass */
-					workspace_powergrid[ip].re/=temp;
-					workspace_powergrid[ip].im/=temp;
 				}
 			}
 
 	char fname_power[256];
 	sprintf(fname_power,"%s%s_DM_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	fftw_real pNorm=1.0/(pow(All.BoxSize,3)*pow(All.Time,3.0)*mean_DM); /* Total mass in simulation */
 	if(All.DetailedPowerOn)
-		calc_powerspec_detailed(fname_power,workspace_powergrid);
+		calc_powerspec_detailed(fname_power,workspace_powergrid,pNorm);
 	else
-		calc_powerspec(fname_power,workspace_powergrid);
+		calc_powerspec(fname_power,workspace_powergrid,pNorm);
 
 	sprintf(fname_power,"%s%s_DE_a=%.3f",All.OutputDir,All.PowerFileBase,All.Time);
+	pNorm=1.0/(PMGRID*PMGRID*PMGRID);
 	if(All.DetailedPowerOn)
-		calc_powerspec_detailed(fname_power,rhogrid_DE);
+		calc_powerspec_detailed(fname_power,rhogrid_DE,pNorm);
 	else
-		calc_powerspec(fname_power,rhogrid_DE);
+		calc_powerspec(fname_power,rhogrid_DE,pNorm);
 
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
@@ -3021,7 +3016,7 @@ void CIC(int *meshmin,int *meshmax){
 	}
 }
 /* Calculate power spectrum. Saves to file fname and takes the fftw array to calculate the power spectrum from. */
-void calc_powerspec(char * fname, fftw_complex* fft_arr){
+void calc_powerspec(char * fname, fftw_complex* fft_arr,fftw_real pNorm){
 	const fftw_real kNorm=2.0*M_PI/(All.BoxSize);
 	const fftw_real tophat_scale=8*CM_PER_MPC/All.UnitLength_in_cm;
 	const int Nyquist=PMGRID/2;
@@ -3159,7 +3154,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 	/* Normalize wavenumbers and power to correct values */
 	for(i=0 ; i<nr_freq ; ++i )
 	{
-		power_y[i]/=num_y[i];
+		power_y[i]=power_y[i]/num_y[i]*pNorm;
 	}
 
 	sigma=sigma_y;
@@ -3196,7 +3191,7 @@ void calc_powerspec(char * fname, fftw_complex* fft_arr){
 
 /* Calculate the power spectrum with all allowed k2 modes. 
  * More noisy, but makes a customised binning possible.  */
-void calc_powerspec_detailed(char * fname, fftw_complex* fft_arr){
+void calc_powerspec_detailed(char * fname, fftw_complex* fft_arr,fftw_real pNorm){
 	const int Nyquist=PMGRID/2;
 	/* Maximum number of different k2 modes in box below Nyquist */
 	const int k2_max=3*Nyquist*Nyquist;
@@ -3278,7 +3273,7 @@ void calc_powerspec_detailed(char * fname, fftw_complex* fft_arr){
 
 	for( k2=0 ; k2<k2_max ; ++k2 )
 	{
-		power_arr[k2]=power_arr[k2]/k2_multi[k2];
+		power_arr[k2]=power_arr[k2]/k2_multi[k2]*pNorm;
 	}
 
 	fftw_real k;
