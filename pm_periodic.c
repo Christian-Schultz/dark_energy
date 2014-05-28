@@ -2040,7 +2040,8 @@ void pmforce_periodic_DE_linear(void)
 	workspace_powergrid=NULL; /* NOT freed, workspace will be freed later */
 
 	const double pot_prefactor=3*(1+All.DarkEnergyW)*mean_DE*vol_fac*H*All.Time*All.BoxSize*All.BoxSize/(lightspeed*lightspeed*4*M_PI*M_PI);
-	const fftw_real dm_fac=1/(All.Time*All.Time*All.Time*All.BoxSize*All.BoxSize*All.BoxSize);
+	//const fftw_real dm_fac=1/(All.Time*All.Time*All.Time*All.BoxSize*All.BoxSize*All.BoxSize);
+	const fftw_real dm_fac=1/vol_fac; /* Extra factor of PMGRID*PMGRID*PMGRID since the dark energy grid is scaled by this factor due to the ICs (so it is delta*PMGRID*PMGRID*PMGRID) */
 	const fftw_real u_fac=3*(1+All.DarkEnergyW)*All.Time*H*pow(All.BoxSize/(2*M_PI*lightspeed),2);
 	/* Dummy variable to store rho */
 	fftw_complex rho_temp_DM;
