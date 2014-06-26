@@ -1942,32 +1942,37 @@ void pmforce_periodic_DE_linear(void)
 				rhogrid_tot[ip].im=rhogrid_DE[ip].im*mean_DE*vol_fac;
 			}
 
-#ifdef DEBUG
 	char fname[256];
-	static int Nruns=0;
-	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
+	if(All.WriteStep){
 		sprintf(fname,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
-		master_printf("Writing dm+de grids\n");
 		write_dm_grid(fname);
-	}
-#endif
-
-	/* Do the FFT of the dark matter density field */
-	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
-
-//	if(first_DE_run)
-//		DE_IC();
-
-#ifdef DEBUG
-	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
 		sprintf(fname,"%sDE_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
 		write_de_grid(fname);
 		sprintf(fname,"%sU_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
 		write_U_grid(fname);
-		++Nruns;
+
+
 	}
+#ifdef DEBUG
+	static int Nruns=0;
+	if(All.Time>All.DarkEnergyOutputStart && Nruns<All.DarkEnergyNumOutputs){
+		if(!All.WriteStep){
+			sprintf(fname,"%sDM_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+			master_printf("Writing dm+de grids\n");
+			write_dm_grid(fname);
+			sprintf(fname,"%sDE_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+			write_de_grid(fname);
+			sprintf(fname,"%sU_a=%.3f.%.3i",All.OutputDir,All.Time,ThisTask);
+			write_U_grid(fname);
+			++Nruns;
+		}
+	}
+
 #endif
 
+	/* Do the FFT of the dark matter density field */
+	rfftwnd_mpi(fft_forward_plan, 1, rhogrid, workspace, FFTW_TRANSPOSED_ORDER);
+	
 	/* Prepare to calculate the dark matter power spectrum */
 	fftw_complex * workspace_powergrid=(fftw_complex *) & workspace[0];
 	workspace_powergrid[0].re=0;
@@ -3482,10 +3487,10 @@ void initialize_dark_energy(void){
 		fread(&NaN,sizeof(double),1,fd);
 		fread(&GridSize,sizeof(double),1,fd);
 		if(Time!=All.DarkEnergyBegin){ /*TODO: Remove time option to start DE in parameterfile for consistency */
-				fprintf(stderr,"Error: Dark energy initial conditions does not match the parameter file time specified\n"
-						"Current time: %e, IC time: %e\nTerminating\n",All.Time,Time);
-				endrun(-1);
-			
+			fprintf(stderr,"Error: Dark energy initial conditions does not match the parameter file time specified\n"
+					"Current time: %e, IC time: %e\nTerminating\n",All.Time,Time);
+			endrun(-1);
+
 		}
 		if(BoxSize!=All.BoxSize){
 			fprintf(stderr,"Error: Dark energy initial conditions does not match the box size\n"

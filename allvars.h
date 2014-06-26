@@ -320,6 +320,7 @@ extern struct global_data_all_processes
   double OmegaBaryon;  /*!< baryon density in units of the critical density (at z=0)*/
   double OmegaNeutrino;/*!< neutrino density in units of the critical density (at z=0)*/
   double HubbleParam;  /*!< little `h', i.e. Hubble constant in units of 100 km/s/Mpc.  Only needed to get absolute physical values for cooling physics */
+  short int WriteStep;
   double DarkEnergyW;  /*!< Dark Energy equation of state */
   double DarkEnergySoundSpeed; /*!< Dark Energy sound speed relative to the lightspeed */
   double DarkEnergyBegin; /*!< Time to toggle dark energy clustering */

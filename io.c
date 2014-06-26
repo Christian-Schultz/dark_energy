@@ -41,6 +41,11 @@ void savepositions(int num)
   if(ThisTask == 0)
     printf("\nwriting snapshot file... \n");
 
+#ifdef DYNAMICAL_DE
+  	/* Write dark energy to disk? */
+	All.WriteStep=1;
+#endif
+
 #if defined(SFR) || defined(BLACK_HOLES)
   rearrange_particle_sequence();
   /* ensures that new tree will be constructed */

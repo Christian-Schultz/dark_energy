@@ -227,6 +227,7 @@ void find_next_sync_point_and_drift(void)
 
   All.CPU_Predict += timediff(t0, t1);
 
+  All.WriteStep=0;
   while(min_glob >= All.Ti_nextoutput && All.Ti_nextoutput >= 0)
     {
       move_particles(All.Ti_Current, All.Ti_nextoutput);
