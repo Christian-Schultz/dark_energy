@@ -81,16 +81,12 @@ void long_range_force(void)
   }
   T_static=T_temp;
 #endif
-  if(All.Time>=All.DarkEnergyBegin)
-  {
 #ifdef NONLINEAR_DE
 	  pmforce_periodic_DE_nonlinear();
 #else
 	  pmforce_periodic_DE_linear();
 #endif
-  }
-  else
-	  pmforce_periodic();
+
 #else
   pmforce_periodic();
 #endif

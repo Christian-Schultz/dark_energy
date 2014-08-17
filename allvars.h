@@ -323,10 +323,6 @@ extern struct global_data_all_processes
   short int WriteStep;
   double DarkEnergyW;  /*!< Dark Energy equation of state */
   double DarkEnergySoundSpeed; /*!< Dark Energy sound speed relative to the lightspeed */
-  double DarkEnergyBegin; /*!< Time to toggle dark energy clustering */
-  char DarkEnergyStatFile[MAXLEN_FILENAME];      /*!< Name of dark energy statistics file */
-  int DarkEnergyNumOutputs;   /* !< Number of dark energy grids to dump */
-  double DarkEnergyOutputStart; /* !< Time to start dumping dark energy */
 
   /* Code options */
 

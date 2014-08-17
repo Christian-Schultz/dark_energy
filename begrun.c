@@ -410,22 +410,6 @@ void read_parameter_file(char *fname)
       addr[nt] = &All.DarkEnergySoundSpeed;
       id[nt++] = DOUBLE;
 
-      strcpy(tag[nt], "DarkEnergyBegin");
-      addr[nt] = &All.DarkEnergyBegin;
-      id[nt++] = DOUBLE;
-
-      strcpy(tag[nt], "DarkEnergyStatFile");
-      addr[nt] = All.DarkEnergyStatFile;
-      id[nt++] = STRING;
-
-      strcpy(tag[nt], "DarkEnergyNumOutputs");
-      addr[nt] = &All.DarkEnergyNumOutputs;
-      id[nt++] = INT;
-
-      strcpy(tag[nt], "DarkEnergyOutputStart");
-      addr[nt] = &All.DarkEnergyOutputStart;
-      id[nt++] = DOUBLE;
-      
       strcpy(tag[nt], "BoxSize");
       addr[nt] = &All.BoxSize;
       id[nt++] = DOUBLE;
